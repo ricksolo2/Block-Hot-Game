@@ -18,7 +18,7 @@ const [level, background, menuImage, sprites, enemySprites, tileSprites] =
     loadEnemySprites(),
     loadTileSprites(),
   ]);
-const spriteScale = sprites?.idle ? 24 / sprites.idle.height : 1;
+const spriteScale = sprites?.idle ? 28 / sprites.idle.height : 1;
 const enemyScales = buildEnemyScales(enemySprites);
 
 const game = new Game(canvas, ctx, input, level, {
@@ -88,9 +88,9 @@ async function loadTileSprites() {
 function buildEnemyScales(sprites) {
   if (!sprites) return null;
   const scales = {};
-  if (sprites.ninja) scales.ninja = 22 / sprites.ninja.height;
-  if (sprites.cop) scales.cop = 24 / sprites.cop.height;
-  if (sprites.snake) scales.snake = 12 / sprites.snake.height;
+  if (sprites.ninja) scales.ninja = 26 / sprites.ninja.height;
+  if (sprites.cop) scales.cop = 28 / sprites.cop.height;
+  if (sprites.snake) scales.snake = 14 / sprites.snake.height;
   return scales;
 }
 

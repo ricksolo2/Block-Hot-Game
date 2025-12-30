@@ -22,10 +22,12 @@ export class Level {
 
     this.coins = (data.coins || []).map((coin) => {
       const point = resolvePoint(coin, this.tileSize, true);
+      const r = 4;
+      const ledgeOffset = this.tileSize / 2 + r + 1;
       return {
         x: point.x,
-        y: point.y,
-        r: 4,
+        y: point.y - ledgeOffset,
+        r,
         collected: false,
       };
     });

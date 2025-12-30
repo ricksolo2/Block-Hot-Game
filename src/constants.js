@@ -1,6 +1,6 @@
 export const CONFIG = {
-  width: 320,
-  height: 192,
+  width: 640,
+  height: 360,
   tileSize: 16,
   gravity: 1400,
   maxHeatStars: 6,
@@ -10,6 +10,9 @@ export const CONFIG = {
   bustHoldTime: 3.0,
   bustEscapeSteps: 4,
   pauseDuration: 60,
+  minCoinsToExit: 8,
+  cameraLookAhead: 70,
+  cameraLerp: 0.12,
 };
 
 export const PELLETS = [

@@ -79,12 +79,12 @@ function drawHeat(ctx, game) {
 
   for (let i = 0; i < CONFIG.maxHeatStars; i += 1) {
     const sx = x + i * (size + gap);
+    const cx = sx + size / 2;
+    const cy = y + size / 2;
     if (i < stars) {
-      ctx.fillStyle = "#f2d64b";
-      ctx.fillRect(sx, y, size, size);
+      drawStar(ctx, cx, cy, size / 2, size / 4, "#f2d64b", "#d0b84b");
     } else {
-      ctx.strokeStyle = "#5a5a5a";
-      ctx.strokeRect(sx, y, size, size);
+      drawStar(ctx, cx, cy, size / 2, size / 4, null, "#5a5a5a");
     }
   }
 
@@ -202,8 +202,9 @@ function drawInstructions(ctx, game) {
   drawText(ctx, "Shoot: X   Dash: C   Reload: R", 8, 56, "#e6e6e6");
   drawText(ctx, "Swap Pellets: Q / E or 1-4", 8, 68, "#e6e6e6");
   drawText(ctx, "Goal: Reach the exit, earn coins, manage Heat.", 8, 84, "#e6e6e6");
-  drawText(ctx, "Cops raise Heat; safehouses cool it down.", 8, 96, "#e6e6e6");
-  drawText(ctx, "Press Enter to Start or Esc to go Back", 8, 116, "#e6e6e6");
+  drawText(ctx, "Need at least 8 coins to exit.", 8, 96, "#e6e6e6");
+  drawText(ctx, "Cops raise Heat; safehouses cool it down.", 8, 108, "#e6e6e6");
+  drawText(ctx, "Press Enter to Start or Esc to go Back", 8, 128, "#e6e6e6");
 }
 
 function drawComplete(ctx) {
@@ -226,9 +227,12 @@ function drawPaused(ctx, game) {
   ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
   ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
   const timeLeft = Math.ceil(game.pauseTimer);
-  const text = `Paused - Restarting in ${timeLeft}s`;
+  const text = `Paused - Returning to menu in ${timeLeft}s`;
   const w = ctx.measureText(text).width;
   drawText(ctx, text, (CONFIG.width - w) / 2, CONFIG.height / 2 - 6, "#ffd08a");
+  const hint = "Press P or Esc to resume";
+  const hintW = ctx.measureText(hint).width;
+  drawText(ctx, hint, (CONFIG.width - hintW) / 2, CONFIG.height / 2 + 6, "#e6e6e6");
 }
 
 function drawMenuBackground(ctx, game) {
@@ -299,6 +303,35 @@ function drawHeart(ctx, x, y, scale, filled) {
         ctx.fillRect(x + col * scale, y + row * scale, scale, scale);
       }
     }
+  }
+}
+
+function drawStar(ctx, cx, cy, outerRadius, innerRadius, fill, stroke) {
+  ctx.beginPath();
+  for (let i = 0; i < 5; i += 1) {
+    const angle = -Math.PI / 2 + i * (Math.PI * 2) / 5;
+    const x = cx + Math.cos(angle) * outerRadius;
+    const y = cy + Math.sin(angle) * outerRadius;
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+    const innerAngle = angle + Math.PI / 5;
+    ctx.lineTo(
+      cx + Math.cos(innerAngle) * innerRadius,
+      cy + Math.sin(innerAngle) * innerRadius
+    );
+  }
+  ctx.closePath();
+
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.stroke();
   }
 }
 

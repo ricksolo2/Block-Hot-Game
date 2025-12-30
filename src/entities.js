@@ -204,6 +204,7 @@ export class Enemy {
     this.ambush = options.ambush || false;
     this.patrolInterval = options.patrolInterval || 2;
     this.patrolTimer = this.patrolInterval;
+    this.flashTimer = 0;
   }
 
   update(dt, game, level) {

@@ -18,6 +18,10 @@ export class Game {
     this.enemyScales = options.enemyScales || null;
     this.tileSprites = options.tileSprites || null;
     this.time = 0;
+    this.shakeTime = 0;
+    this.shakeDuration = 0;
+    this.shakeStrength = 0;
+    this.particles = [];
 
     this.player = new Player(level.playerSpawn.x, level.playerSpawn.y);
     this.checkpoint = { x: level.playerSpawn.x, y: level.playerSpawn.y };
@@ -115,6 +119,13 @@ export class Game {
 
   update(dt) {
     this.time += dt;
+    if (this.shakeTime > 0) {
+      this.shakeTime = Math.max(0, this.shakeTime - dt);
+      if (this.shakeTime === 0) {
+        this.shakeStrength = 0;
+        this.shakeDuration = 0;
+      }
+    }
     if (this.state === "menu") {
       if (this.input.wasPressed("Enter")) {
         this.state = "playing";
@@ -152,9 +163,15 @@ export class Game {
     }
 
     if (this.state === "paused") {
+      if (this.input.wasPressed("KeyP") || this.input.wasPressed("Escape")) {
+        this.state = "playing";
+        this.pauseTimer = 0;
+        this.input.clearPressed();
+        return;
+      }
       this.pauseTimer = Math.max(0, this.pauseTimer - dt);
       if (this.pauseTimer <= 0) {
-        this.restart();
+        this.returnToMenu();
       }
       this.input.clearPressed();
       return;
@@ -176,6 +193,7 @@ export class Game {
     }
 
     for (const enemy of this.enemies) {
+      enemy.flashTimer = Math.max(0, enemy.flashTimer - dt);
       enemy.update(dt, this, this.level);
     }
 
@@ -184,6 +202,7 @@ export class Game {
     }
 
     this.projectiles = this.projectiles.filter((projectile) => !projectile.dead);
+    this.updateParticles(dt);
 
     this.handleProjectileHits();
     this.handlePlayerHazards();
@@ -209,16 +228,25 @@ export class Game {
   updateCamera() {
     const levelWidth = this.level.width * this.level.tileSize;
     const levelHeight = this.level.height * this.level.tileSize;
-    this.camera.x = clamp(
-      this.player.x + this.player.w / 2 - CONFIG.width / 2,
-      0,
-      Math.max(0, levelWidth - CONFIG.width)
+    const maxX = Math.max(0, levelWidth - CONFIG.width);
+    const maxY = Math.max(0, levelHeight - CONFIG.height);
+    const lookAhead = clamp(
+      this.player.vx * 0.35,
+      -CONFIG.cameraLookAhead,
+      CONFIG.cameraLookAhead
     );
-    this.camera.y = clamp(
+    const targetX = clamp(
+      this.player.x + this.player.w / 2 + lookAhead - CONFIG.width / 2,
+      0,
+      maxX
+    );
+    const targetY = clamp(
       this.player.y + this.player.h / 2 - CONFIG.height / 2,
       0,
-      Math.max(0, levelHeight - CONFIG.height)
+      maxY
     );
+    this.camera.x += (targetX - this.camera.x) * CONFIG.cameraLerp;
+    this.camera.y += (targetY - this.camera.y) * CONFIG.cameraLerp;
   }
 
   spawnProjectile(player) {
@@ -229,6 +257,14 @@ export class Game {
     this.projectiles.push(
       new Projectile(x, y, pellet.speed * dir, 0, pellet)
     );
+    this.addShake(1.2, 0.08);
+    this.spawnParticles(x + dir * 4, y, {
+      color: pellet.color,
+      count: 6,
+      minSpeed: 30,
+      maxSpeed: 90,
+      life: 0.25,
+    });
   }
 
   handleProjectileHits() {
@@ -250,6 +286,14 @@ export class Game {
     enemy.hp -= pellet.damage;
     enemy.stunTimer = pellet.stun;
     enemy.vx += Math.sign(projectile.vx) * pellet.push;
+    enemy.flashTimer = 0.035;
+    this.spawnParticles(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, {
+      color: "#ffffff",
+      count: 6,
+      minSpeed: 40,
+      maxSpeed: 120,
+      life: 0.2,
+    });
 
     if (pellet.chain) {
       const target = this.findChainTarget(enemy, 60);
@@ -380,7 +424,7 @@ export class Game {
       if (coin.collected) continue;
       const dx = this.player.x + this.player.w / 2 - coin.x;
       const dy = this.player.y + this.player.h / 2 - coin.y;
-      if (Math.hypot(dx, dy) < coin.r + 8) {
+      if (Math.hypot(dx, dy) < coin.r + 10) {
         coin.collected = true;
         this.coinCount += 1;
         this.score += 10 * this.combo;
@@ -404,7 +448,10 @@ export class Game {
   }
 
   handleExit() {
-    if (rectsOverlap(this.player, this.level.exit)) {
+    if (
+      rectsOverlap(this.player, this.level.exit) &&
+      this.coinCount >= CONFIG.minCoinsToExit
+    ) {
       this.levelComplete = true;
       this.state = "complete";
     }
@@ -494,6 +541,18 @@ export class Game {
     this.player.vy = -200;
     this.combo = 1;
     this.comboTimer = 0;
+    this.addShake(2, 0.12);
+    this.spawnParticles(
+      this.player.x + this.player.w / 2,
+      this.player.y + this.player.h / 2,
+      {
+        color: "#ffb3b3",
+        count: 10,
+        minSpeed: 50,
+        maxSpeed: 160,
+        life: 0.35,
+      }
+    );
 
     if (this.player.hp <= 0) {
       this.triggerGameOver();
@@ -565,6 +624,11 @@ export class Game {
     this.spawnInitialEnemies();
   }
 
+  returnToMenu() {
+    this.restart();
+    this.state = "menu";
+  }
+
   triggerGameOver() {
     this.state = "gameover";
     this.levelComplete = false;
@@ -583,6 +647,9 @@ export class Game {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, CONFIG.width, CONFIG.height);
 
+    const shake = this.getShakeOffset();
+    ctx.save();
+    ctx.translate(shake.x, shake.y);
     this.drawBackground(ctx);
 
     ctx.save();
@@ -593,9 +660,11 @@ export class Game {
     this.drawSafehouses(ctx);
     this.drawExit(ctx);
     this.drawProjectiles(ctx);
+    this.drawParticles(ctx);
     this.drawEnemies(ctx);
     this.drawPlayer(ctx);
 
+    ctx.restore();
     ctx.restore();
     if (this.bust.active) {
       this.drawBustLights(ctx);
@@ -642,8 +711,8 @@ export class Game {
   drawCoins(ctx) {
     for (const coin of this.level.coins) {
       if (coin.collected) continue;
-      const hover = Math.sin(this.time * 6 + coin.x * 0.1) * 1.5;
-      const drawY = coin.y - 4 + hover;
+      const hover = Math.sin(this.time * 6 + coin.x * 0.1) * 0.6;
+      const drawY = coin.y + hover;
       ctx.fillStyle = "#0b0b0b";
       ctx.beginPath();
       ctx.arc(coin.x, drawY, coin.r + 1, 0, Math.PI * 2);
@@ -663,8 +732,10 @@ export class Game {
   }
 
   drawExit(ctx) {
-    ctx.fillStyle = "#6bf28a";
+    ctx.fillStyle = "#d94b4b";
     ctx.fillRect(this.level.exit.x, this.level.exit.y, this.level.exit.w, this.level.exit.h);
+    ctx.strokeStyle = "#f7b2b2";
+    ctx.strokeRect(this.level.exit.x, this.level.exit.y, this.level.exit.w, this.level.exit.h);
   }
 
   drawProjectiles(ctx) {
@@ -674,25 +745,45 @@ export class Game {
     }
   }
 
+  drawParticles(ctx) {
+    for (const particle of this.particles) {
+      const alpha = Math.max(0, particle.life / particle.maxLife);
+      ctx.fillStyle = particle.color;
+      ctx.globalAlpha = alpha;
+      ctx.fillRect(
+        particle.x - particle.size / 2,
+        particle.y - particle.size / 2,
+        particle.size,
+        particle.size
+      );
+    }
+    ctx.globalAlpha = 1;
+  }
+
   drawEnemies(ctx) {
     for (const enemy of this.enemies) {
       const sprite = this.getEnemySprite(enemy);
       if (sprite && sprite.image) {
-        this.drawEnemySprite(ctx, enemy, sprite);
+        this.drawEnemySprite(ctx, enemy, sprite, enemy.flashTimer > 0);
         continue;
       }
 
       if (enemy.type === "cop") {
-        ctx.fillStyle = "#4b8bff";
+        ctx.fillStyle = enemy.flashTimer > 0 ? "#ffffff" : "#4b8bff";
         ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
       } else if (enemy.type === "ninja") {
-        ctx.fillStyle = "#141414";
+        ctx.fillStyle = enemy.flashTimer > 0 ? "#ffffff" : "#141414";
         ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
       } else {
-        ctx.fillStyle = "#0b0b0b";
-        ctx.fillRect(enemy.x - 1, enemy.y - 1, enemy.w + 2, enemy.h + 2);
-        ctx.fillStyle = "#f5f5f5";
-        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+        if (enemy.flashTimer > 0) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(enemy.x - 1, enemy.y - 1, enemy.w + 2, enemy.h + 2);
+        } else {
+          ctx.fillStyle = "#0b0b0b";
+          ctx.fillRect(enemy.x - 1, enemy.y - 1, enemy.w + 2, enemy.h + 2);
+          ctx.fillStyle = "#f5f5f5";
+          ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+        }
       }
     }
   }
@@ -709,7 +800,10 @@ export class Game {
     const drawW = sprite.image.width * scale;
     const drawH = sprite.image.height * scale;
     const drawX = this.player.x + this.player.w / 2 - drawW / 2;
-    const drawY = this.player.y + this.player.h - drawH;
+    let drawY = this.player.y + this.player.h - drawH;
+    if (this.player.onGround && Math.abs(this.player.vx) > 5) {
+      drawY += Math.sin(this.time * 12) * 0.6;
+    }
 
     ctx.save();
     if (sprite.flip) {
@@ -726,7 +820,7 @@ export class Game {
     if (!this.sprites) return null;
     const { idle, runLeft, runRight, jump, gun } = this.sprites;
     const facingLeft = this.player.facing < 0;
-    const moving = Math.abs(this.player.vx) > 20;
+    const moving = Math.abs(this.player.vx) > 5;
 
     if (gun && this.player.shootTimer > 0) {
       return { image: gun, flip: facingLeft };
@@ -768,7 +862,7 @@ export class Game {
     return null;
   }
 
-  drawEnemySprite(ctx, enemy, sprite) {
+  drawEnemySprite(ctx, enemy, sprite, flash) {
     const scale =
       (this.enemyScales && this.enemyScales[enemy.type]) || 1;
     const drawW = sprite.image.width * scale;
@@ -787,9 +881,75 @@ export class Game {
       ctx.translate(drawX + drawW, drawY);
       ctx.scale(-1, 1);
       ctx.drawImage(sprite.image, 0, 0, drawW, drawH);
+      if (flash) {
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+        ctx.fillRect(0, 0, drawW, drawH);
+      }
       ctx.restore();
     } else {
       ctx.drawImage(sprite.image, drawX, drawY, drawW, drawH);
+      if (flash) {
+        ctx.save();
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+        ctx.fillRect(drawX, drawY, drawW, drawH);
+        ctx.restore();
+      }
     }
+  }
+
+  addShake(strength, duration) {
+    this.shakeStrength = Math.max(this.shakeStrength, strength);
+    this.shakeDuration = Math.max(this.shakeDuration, duration);
+    this.shakeTime = Math.max(this.shakeTime, duration);
+  }
+
+  getShakeOffset() {
+    if (this.shakeTime <= 0) return { x: 0, y: 0 };
+    const t = this.shakeDuration > 0 ? this.shakeTime / this.shakeDuration : 1;
+    const strength = this.shakeStrength * t;
+    return {
+      x: (Math.random() * 2 - 1) * strength,
+      y: (Math.random() * 2 - 1) * strength,
+    };
+  }
+
+  spawnParticles(x, y, options = {}) {
+    const count = options.count ?? 6;
+    const color = options.color ?? "#ffffff";
+    const minSpeed = options.minSpeed ?? 40;
+    const maxSpeed = options.maxSpeed ?? 120;
+    const life = options.life ?? 0.3;
+    const size = options.size ?? 2;
+
+    for (let i = 0; i < count; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = minSpeed + Math.random() * (maxSpeed - minSpeed);
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: size + Math.random(),
+        color,
+      });
+    }
+  }
+
+  updateParticles(dt) {
+    const gravity = 280;
+    this.particles = this.particles.filter((particle) => {
+      particle.life -= dt;
+      if (particle.life <= 0) {
+        return false;
+      }
+      particle.vy += gravity * dt;
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      return true;
+    });
   }
 }

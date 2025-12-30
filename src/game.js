@@ -1,0 +1,669 @@
+import { CONFIG, PELLETS } from "./constants.js";
+import { clamp, rectsOverlap, randItem } from "./utils.js";
+import { Player, Enemy, Projectile } from "./entities.js";
+import { drawHud } from "./ui.js";
+
+export class Game {
+  constructor(canvas, ctx, input, level, options = {}) {
+    this.canvas = canvas;
+    this.ctx = ctx;
+    this.input = input;
+    this.level = level;
+    this.camera = { x: 0, y: 0, w: CONFIG.width, h: CONFIG.height };
+    this.background = options.background || null;
+    this.time = 0;
+
+    this.player = new Player(level.playerSpawn.x, level.playerSpawn.y);
+    this.checkpoint = { x: level.playerSpawn.x, y: level.playerSpawn.y };
+
+    this.enemies = [];
+    this.projectiles = [];
+    this.heatPoints = 0;
+    this.heatStars = 0;
+    this.combo = 1;
+    this.comboMaxTime = 2.0;
+    this.comboTimer = 0;
+    this.score = 0;
+    this.coinCount = 0;
+    this.safehouseCooldown = 0;
+    this.levelComplete = false;
+    this.copSpawnTimer = CONFIG.copSpawnInterval;
+    this.ninjaSpawnTimer = CONFIG.ninjaSpawnInterval;
+    this.state = "menu";
+    this.bust = {
+      active: false,
+      timer: 0,
+      escape: 0,
+      dir: 1,
+    };
+
+    this.spawnInitialEnemies();
+    this.resize();
+  }
+
+  start() {
+    this.lastTime = performance.now();
+    this.accumulator = 0;
+    this.loop = this.loop.bind(this);
+    requestAnimationFrame(this.loop);
+  }
+
+  loop(now) {
+    const delta = Math.min(0.1, (now - this.lastTime) / 1000);
+    this.lastTime = now;
+    this.accumulator += delta;
+
+    while (this.accumulator >= 1 / 60) {
+      this.update(1 / 60);
+      this.accumulator -= 1 / 60;
+    }
+
+    this.render();
+    requestAnimationFrame(this.loop);
+  }
+
+  resize() {
+    const scale = Math.max(
+      1,
+      Math.floor(
+        Math.min(window.innerWidth / CONFIG.width, window.innerHeight / CONFIG.height)
+      )
+    );
+    this.canvas.style.width = `${CONFIG.width * scale}px`;
+    this.canvas.style.height = `${CONFIG.height * scale}px`;
+  }
+
+  spawnInitialEnemies() {
+    this.enemies = [];
+    for (const spawn of this.level.snakeSpawns) {
+      this.enemies.push(
+        new Enemy("snake", spawn.x, spawn.y, {
+          ambush: !!spawn.ambush,
+          patrolRange: spawn.patrolRange || 40,
+        })
+      );
+    }
+    for (const spawn of this.level.copSpawns) {
+      this.enemies.push(this.createCop(spawn));
+    }
+    for (const spawn of this.level.ninjaSpawns) {
+      this.enemies.push(this.createNinja(spawn));
+    }
+  }
+
+  createCop(spawn) {
+    const hp = 2 + Math.floor(this.heatStars / 2);
+    return new Enemy("cop", spawn.x, spawn.y, {
+      hp,
+      patrolRange: spawn.patrolRange || 96,
+    });
+  }
+
+  createNinja(spawn) {
+    return new Enemy("ninja", spawn.x, spawn.y, {
+      hp: 2,
+      patrolRange: spawn.patrolRange || 80,
+    });
+  }
+
+  update(dt) {
+    this.time += dt;
+    if (this.state === "menu") {
+      if (this.input.wasPressed("Enter")) {
+        this.state = "playing";
+      } else if (this.input.wasPressed("KeyI")) {
+        this.state = "instructions";
+      }
+      this.input.clearPressed();
+      return;
+    }
+
+    if (this.state === "instructions") {
+      if (this.input.wasPressed("Escape") || this.input.wasPressed("KeyI")) {
+        this.state = "menu";
+      } else if (this.input.wasPressed("Enter")) {
+        this.state = "playing";
+      }
+      this.input.clearPressed();
+      return;
+    }
+
+    if (this.state === "complete") {
+      if (this.input.wasPressed("Enter")) {
+        this.restart();
+      }
+      this.input.clearPressed();
+      return;
+    }
+
+    if (this.state === "gameover") {
+      if (this.input.wasPressed("Enter")) {
+        this.restart();
+      }
+      this.input.clearPressed();
+      return;
+    }
+
+    this.safehouseCooldown = Math.max(0, this.safehouseCooldown - dt);
+
+    if (this.bust.active) {
+      this.updateBust(dt);
+    } else {
+      this.player.update(dt, this.input, this.level, this);
+    }
+
+    for (const enemy of this.enemies) {
+      enemy.update(dt, this, this.level);
+    }
+
+    for (const projectile of this.projectiles) {
+      projectile.update(dt, this.level);
+    }
+
+    this.projectiles = this.projectiles.filter((projectile) => !projectile.dead);
+
+    this.handleProjectileHits();
+    this.handlePlayerHazards();
+    this.handlePlayerEnemyCollision();
+    this.handleCoins();
+    this.handleSafehouses();
+    this.handleExit();
+    this.updateEnemySpawns(dt);
+
+    if (this.comboTimer > 0) {
+      this.comboTimer = Math.max(0, this.comboTimer - dt);
+      if (this.comboTimer === 0) {
+        this.combo = 1;
+      }
+    }
+
+    this.updateCamera();
+    this.handleOutOfBounds();
+
+    this.input.clearPressed();
+  }
+
+  updateCamera() {
+    const levelWidth = this.level.width * this.level.tileSize;
+    const levelHeight = this.level.height * this.level.tileSize;
+    this.camera.x = clamp(
+      this.player.x + this.player.w / 2 - CONFIG.width / 2,
+      0,
+      Math.max(0, levelWidth - CONFIG.width)
+    );
+    this.camera.y = clamp(
+      this.player.y + this.player.h / 2 - CONFIG.height / 2,
+      0,
+      Math.max(0, levelHeight - CONFIG.height)
+    );
+  }
+
+  spawnProjectile(player) {
+    const pellet = PELLETS[player.pelletIndex];
+    const dir = player.facing;
+    const x = dir > 0 ? player.x + player.w : player.x - 4;
+    const y = player.y + player.h * 0.5;
+    this.projectiles.push(
+      new Projectile(x, y, pellet.speed * dir, 0, pellet)
+    );
+  }
+
+  handleProjectileHits() {
+    for (const projectile of this.projectiles) {
+      if (projectile.dead) continue;
+      for (const enemy of this.enemies) {
+        if (rectsOverlap(projectile, enemy)) {
+          this.applyProjectileHit(enemy, projectile);
+          if (projectile.dead) break;
+        }
+      }
+    }
+
+    this.enemies = this.enemies.filter((enemy) => enemy.hp > 0);
+  }
+
+  applyProjectileHit(enemy, projectile) {
+    const pellet = projectile.pellet;
+    enemy.hp -= pellet.damage;
+    enemy.stunTimer = pellet.stun;
+    enemy.vx += Math.sign(projectile.vx) * pellet.push;
+
+    if (pellet.chain) {
+      const target = this.findChainTarget(enemy, 60);
+      if (target) {
+        target.hp -= 1;
+        target.stunTimer = pellet.stun;
+        if (target.hp <= 0) {
+          this.neutralizeEnemy(target);
+        }
+      }
+    }
+
+    if (enemy.hp <= 0) {
+      this.neutralizeEnemy(enemy);
+    }
+
+    if (projectile.pierce > 0) {
+      projectile.pierce -= 1;
+    } else {
+      projectile.dead = true;
+    }
+  }
+
+  findChainTarget(origin, radius) {
+    let best = null;
+    let bestDist = Infinity;
+
+    for (const enemy of this.enemies) {
+      if (enemy === origin || enemy.hp <= 0) continue;
+      const dx = enemy.x - origin.x;
+      const dy = enemy.y - origin.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < radius && dist < bestDist) {
+        best = enemy;
+        bestDist = dist;
+      }
+    }
+
+    return best;
+  }
+
+  neutralizeEnemy(enemy) {
+    if (enemy.type === "cop") {
+      this.addHeatStars(1);
+    }
+
+    this.addCombo();
+    this.score += 100 * this.combo;
+    enemy.hp = 0;
+  }
+
+  handlePlayerHazards() {
+    if (this.bust.active || this.player.invuln > 0) return;
+    const tiles = this.level.tilesInRect(this.player);
+    for (const tile of tiles) {
+      if (this.level.isHazardTile(tile.type)) {
+        this.damagePlayer(1, this.player.vx >= 0 ? -1 : 1);
+        break;
+      }
+    }
+  }
+
+  handlePlayerEnemyCollision() {
+    if (this.bust.active || this.player.invuln > 0) return;
+    for (const enemy of this.enemies) {
+      if (rectsOverlap(this.player, enemy)) {
+        if (enemy.type === "cop") {
+          this.startBust(enemy);
+        } else {
+          const dir = this.player.x < enemy.x ? -1 : 1;
+          this.damagePlayer(1, dir);
+        }
+        break;
+      }
+    }
+  }
+
+  startBust(enemy) {
+    if (this.bust.active || this.player.invuln > 0) return;
+    this.bust.active = true;
+    this.bust.timer = CONFIG.bustHoldTime;
+    this.bust.escape = 0;
+    this.bust.dir = this.player.x < enemy.x ? -1 : 1;
+    this.player.vx = 0;
+    this.player.vy = 0;
+  }
+
+  updateBust(dt) {
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.bust.timer -= dt;
+
+    if (
+      this.input.wasPressed("ArrowLeft") ||
+      this.input.wasPressed("ArrowRight") ||
+      this.input.wasPressed("KeyZ") ||
+      this.input.wasPressed("Space") ||
+      this.input.wasPressed("KeyX")
+    ) {
+      this.bust.escape += 1;
+    }
+
+    if (this.bust.escape >= CONFIG.bustEscapeSteps) {
+      this.endBust(true);
+    } else if (this.bust.timer <= 0) {
+      this.endBust(false);
+    }
+  }
+
+  endBust(escaped) {
+    this.bust.active = false;
+    if (escaped) {
+      this.player.invuln = 0.8;
+      this.player.vx = -this.bust.dir * 140;
+      this.player.vy = -180;
+    } else {
+      this.player.hp -= 1;
+      if (this.player.hp <= 0) {
+        this.triggerGameOver();
+      } else {
+        this.respawnAtCheckpoint({ heal: false, reduceHeat: true });
+      }
+    }
+  }
+
+  handleCoins() {
+    for (const coin of this.level.coins) {
+      if (coin.collected) continue;
+      const dx = this.player.x + this.player.w / 2 - coin.x;
+      const dy = this.player.y + this.player.h / 2 - coin.y;
+      if (Math.hypot(dx, dy) < coin.r + 8) {
+        coin.collected = true;
+        this.coinCount += 1;
+        this.score += 10 * this.combo;
+        this.addCombo();
+      }
+    }
+  }
+
+  handleSafehouses() {
+    if (this.safehouseCooldown > 0) return;
+    for (const safehouse of this.level.safehouses) {
+      if (rectsOverlap(this.player, safehouse)) {
+        this.safehouseCooldown = 2;
+        this.checkpoint.x = safehouse.x;
+        this.checkpoint.y = safehouse.y;
+        this.player.hp = this.player.maxHp;
+        this.reduceHeatStars(1);
+        break;
+      }
+    }
+  }
+
+  handleExit() {
+    if (rectsOverlap(this.player, this.level.exit)) {
+      this.levelComplete = true;
+      this.state = "complete";
+    }
+  }
+
+  handleOutOfBounds() {
+    const levelBottom = this.level.height * this.level.tileSize + 40;
+    if (this.player.y > levelBottom) {
+      this.applyFallPenalty();
+    }
+  }
+
+  updateEnemySpawns(dt) {
+    const activeCops = this.enemies.filter((enemy) => enemy.type === "cop").length;
+    const activeNinjas = this.enemies.filter(
+      (enemy) => enemy.type === "ninja"
+    ).length;
+
+    const targetCops = clamp(1 + this.heatStars, 1, 5);
+    const targetNinjas = clamp(2 + Math.floor(this.heatStars / 2), 2, 5);
+
+    this.copSpawnTimer -= dt;
+    if (this.copSpawnTimer <= 0) {
+      if (activeCops < targetCops) {
+        const spawn = randItem(this.level.copSpawns);
+        if (spawn) {
+          this.enemies.push(this.createCop(spawn));
+        }
+      }
+      this.copSpawnTimer = CONFIG.copSpawnInterval;
+    }
+
+    this.ninjaSpawnTimer -= dt;
+    if (this.ninjaSpawnTimer <= 0) {
+      if (activeNinjas < targetNinjas) {
+        const spawn = randItem(this.level.ninjaSpawns);
+        if (spawn) {
+          this.enemies.push(this.createNinja(spawn));
+        }
+      }
+      this.ninjaSpawnTimer = CONFIG.ninjaSpawnInterval;
+    }
+  }
+
+  addHeat(amount) {
+    this.heatPoints += amount;
+    this.updateHeatStars();
+  }
+
+  addHeatStars(count) {
+    this.setHeatStars(this.heatStars + count);
+  }
+
+  reduceHeatStars(count) {
+    this.setHeatStars(this.heatStars - count);
+  }
+
+  updateHeatStars() {
+    let stars = 0;
+    for (const threshold of CONFIG.heatThresholds) {
+      if (this.heatPoints >= threshold) {
+        stars += 1;
+      }
+    }
+    this.heatStars = Math.min(CONFIG.maxHeatStars, stars);
+  }
+
+  setHeatStars(stars) {
+    this.heatStars = clamp(stars, 0, CONFIG.maxHeatStars);
+    if (this.heatStars === 0) {
+      this.heatPoints = 0;
+    } else {
+      const threshold = CONFIG.heatThresholds[this.heatStars - 1] || 0;
+      this.heatPoints = threshold;
+    }
+  }
+
+  addCombo() {
+    this.combo = Math.min(10, this.combo + 1);
+    this.comboTimer = this.comboMaxTime;
+  }
+
+  damagePlayer(amount, knockbackDir) {
+    this.player.hp -= amount;
+    this.player.invuln = 1.0;
+    this.player.vx = 160 * knockbackDir;
+    this.player.vy = -200;
+    this.combo = 1;
+    this.comboTimer = 0;
+
+    if (this.player.hp <= 0) {
+      this.triggerGameOver();
+    }
+  }
+
+  respawnAtCheckpoint({ heal = false, reduceHeat = true } = {}) {
+    this.player.x = this.checkpoint.x;
+    this.player.y = this.checkpoint.y;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    if (heal) {
+      this.player.hp = this.player.maxHp;
+    }
+    this.player.invuln = 1.0;
+    this.player.ammo = this.player.maxAmmo;
+    this.player.reloadTimer = 0;
+    if (reduceHeat) {
+      this.reduceHeatStars(1);
+    }
+  }
+
+  respawnAtStart({ reduceHeat = true } = {}) {
+    this.player.x = this.level.playerSpawn.x;
+    this.player.y = this.level.playerSpawn.y;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.invuln = 1.0;
+    this.player.ammo = this.player.maxAmmo;
+    this.player.reloadTimer = 0;
+    if (reduceHeat) {
+      this.reduceHeatStars(1);
+    }
+  }
+
+  applyFallPenalty() {
+    this.player.hp -= 1;
+    if (this.player.hp <= 0) {
+      this.triggerGameOver();
+    } else {
+      this.respawnAtStart({ reduceHeat: true });
+    }
+  }
+
+  restart() {
+    this.levelComplete = false;
+    this.state = "playing";
+    this.score = 0;
+    this.coinCount = 0;
+    this.combo = 1;
+    this.comboTimer = 0;
+    this.heatPoints = 0;
+    this.updateHeatStars();
+    this.safehouseCooldown = 0;
+    this.copSpawnTimer = CONFIG.copSpawnInterval;
+    this.ninjaSpawnTimer = CONFIG.ninjaSpawnInterval;
+    this.bust.active = false;
+    this.bust.timer = 0;
+    this.bust.escape = 0;
+
+    for (const coin of this.level.coins) {
+      coin.collected = false;
+    }
+
+    this.player.reset(this.level.playerSpawn.x, this.level.playerSpawn.y);
+    this.checkpoint.x = this.level.playerSpawn.x;
+    this.checkpoint.y = this.level.playerSpawn.y;
+    this.spawnInitialEnemies();
+  }
+
+  triggerGameOver() {
+    this.state = "gameover";
+    this.levelComplete = false;
+    this.bust.active = false;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.invuln = 0;
+  }
+
+  isPlayerInGrass() {
+    return this.level.isInGrass(this.player);
+  }
+
+  render() {
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, CONFIG.width, CONFIG.height);
+
+    this.drawBackground(ctx);
+
+    ctx.save();
+    ctx.translate(-this.camera.x, -this.camera.y);
+
+    this.level.draw(ctx, this.camera);
+    this.drawCoins(ctx);
+    this.drawSafehouses(ctx);
+    this.drawExit(ctx);
+    this.drawProjectiles(ctx);
+    this.drawEnemies(ctx);
+    this.drawPlayer(ctx);
+
+    ctx.restore();
+    if (this.bust.active) {
+      this.drawBustLights(ctx);
+    }
+    drawHud(ctx, this);
+  }
+
+  drawBackground(ctx) {
+    if (!this.background) {
+      ctx.fillStyle = "#151515";
+      ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+      return;
+    }
+
+    ctx.fillStyle = "#0c0c0c";
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+
+    const scale = Math.min(
+      CONFIG.width / this.background.width,
+      CONFIG.height / this.background.height
+    );
+    const drawW = this.background.width * scale;
+    const drawH = this.background.height * scale;
+    const drawX = (CONFIG.width - drawW) / 2;
+    const drawY = (CONFIG.height - drawH) / 2;
+
+    ctx.drawImage(this.background, drawX, drawY, drawW, drawH);
+  }
+
+  drawBustLights(ctx) {
+    const pulse = (Math.sin(this.time * 12) + 1) / 2;
+    const leftAlpha = 0.18 + 0.15 * pulse;
+    const rightAlpha = 0.18 + 0.15 * (1 - pulse);
+    ctx.save();
+    ctx.fillStyle = `rgba(255, 60, 60, ${leftAlpha})`;
+    ctx.fillRect(0, 0, CONFIG.width / 2, CONFIG.height);
+    ctx.fillStyle = `rgba(60, 140, 255, ${rightAlpha})`;
+    ctx.fillRect(CONFIG.width / 2, 0, CONFIG.width / 2, CONFIG.height);
+    ctx.restore();
+  }
+
+  drawCoins(ctx) {
+    for (const coin of this.level.coins) {
+      if (coin.collected) continue;
+      ctx.fillStyle = "#0b0b0b";
+      ctx.beginPath();
+      ctx.arc(coin.x, coin.y, coin.r + 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f2d64b";
+      ctx.beginPath();
+      ctx.arc(coin.x, coin.y, coin.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  drawSafehouses(ctx) {
+    ctx.fillStyle = "#4bd1b8";
+    for (const safehouse of this.level.safehouses) {
+      ctx.fillRect(safehouse.x, safehouse.y, safehouse.w, safehouse.h);
+    }
+  }
+
+  drawExit(ctx) {
+    ctx.fillStyle = "#6bf28a";
+    ctx.fillRect(this.level.exit.x, this.level.exit.y, this.level.exit.w, this.level.exit.h);
+  }
+
+  drawProjectiles(ctx) {
+    for (const projectile of this.projectiles) {
+      ctx.fillStyle = projectile.pellet.color;
+      ctx.fillRect(projectile.x, projectile.y, projectile.w, projectile.h);
+    }
+  }
+
+  drawEnemies(ctx) {
+    for (const enemy of this.enemies) {
+      if (enemy.type === "cop") {
+        ctx.fillStyle = "#4b8bff";
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+      } else if (enemy.type === "ninja") {
+        ctx.fillStyle = "#141414";
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+      } else {
+        ctx.fillStyle = "#0b0b0b";
+        ctx.fillRect(enemy.x - 1, enemy.y - 1, enemy.w + 2, enemy.h + 2);
+        ctx.fillStyle = "#f5f5f5";
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+      }
+    }
+  }
+
+  drawPlayer(ctx) {
+    ctx.fillStyle = this.player.invuln > 0 ? "#9ef5a1" : "#5ad96b";
+    ctx.fillRect(this.player.x, this.player.y, this.player.w, this.player.h);
+  }
+}

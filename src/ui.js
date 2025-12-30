@@ -8,13 +8,13 @@ export function drawHud(ctx, game) {
   ctx.textBaseline = "top";
 
   if (game.state === "menu") {
-    drawMenu(ctx);
+    drawMenu(ctx, game);
     ctx.restore();
     return;
   }
 
   if (game.state === "instructions") {
-    drawInstructions(ctx);
+    drawInstructions(ctx, game);
     ctx.restore();
     return;
   }
@@ -27,6 +27,12 @@ export function drawHud(ctx, game) {
 
   if (game.state === "gameover") {
     drawGameOver(ctx);
+    ctx.restore();
+    return;
+  }
+
+  if (game.state === "paused") {
+    drawPaused(ctx, game);
     ctx.restore();
     return;
   }
@@ -121,11 +127,12 @@ function drawCoinScore(ctx, game) {
   const y = 8;
   const countText = `${game.coinCount}`;
   const countWidth = ctx.measureText(countText).width;
-  const iconWidth = 6 * 2 + 4;
+  const coinRadius = 4;
+  const iconWidth = coinRadius * 2 + 4;
   const blockWidth = iconWidth + countWidth + 4;
   const x = CONFIG.width - blockWidth - 8;
 
-  drawCoin(ctx, x, y + 2, 6);
+  drawCoin(ctx, x, y + 1, coinRadius);
   drawText(ctx, countText, x + iconWidth, y, "#f7f1cf");
 
   const scoreText = `Score: ${game.score}`;
@@ -154,9 +161,7 @@ function drawWeapon(ctx, game) {
   drawText(ctx, ammoLine, x, y + 10, "#e6e6e6");
 }
 
-function drawHints(ctx, game) {
-  drawText(ctx, "Press I for Instructions", 8, CONFIG.height - 36, "#cfd4d8");
-}
+function drawHints() {}
 
 function drawBustPrompt(ctx, game) {
   if (!game.bust.active) return;
@@ -165,10 +170,9 @@ function drawBustPrompt(ctx, game) {
   drawText(ctx, text, (CONFIG.width - w) / 2, CONFIG.height / 2 - 6, "#ffd08a");
 }
 
-function drawMenu(ctx) {
-  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-  ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
-  ctx.fillStyle = "#7fd8ff";
+function drawMenu(ctx, game) {
+  drawMenuBackground(ctx, game);
+
   ctx.font = "14px monospace";
   const title = "BlockHot";
   const titleW = ctx.measureText(title).width;
@@ -176,7 +180,6 @@ function drawMenu(ctx) {
 
   ctx.font = "9px monospace";
   const start = "Press Enter to Start";
-  const instr = "Press I for Instructions";
   drawText(
     ctx,
     start,
@@ -184,18 +187,11 @@ function drawMenu(ctx) {
     80,
     "#e6e6e6"
   );
-  drawText(
-    ctx,
-    instr,
-    (CONFIG.width - ctx.measureText(instr).width) / 2,
-    96,
-    "#e6e6e6"
-  );
 }
 
-function drawInstructions(ctx) {
-  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-  ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+function drawInstructions(ctx, game) {
+  drawMenuBackground(ctx, game);
+
   ctx.font = "12px monospace";
   const title = "Instructions";
   drawText(ctx, title, 8, 12, "#7fd8ff");
@@ -226,9 +222,42 @@ function drawGameOver(ctx) {
   drawText(ctx, text, (CONFIG.width - w) / 2, CONFIG.height / 2 - 6, "#ff8a8a");
 }
 
+function drawPaused(ctx, game) {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+  ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+  const timeLeft = Math.ceil(game.pauseTimer);
+  const text = `Paused - Restarting in ${timeLeft}s`;
+  const w = ctx.measureText(text).width;
+  drawText(ctx, text, (CONFIG.width - w) / 2, CONFIG.height / 2 - 6, "#ffd08a");
+}
+
+function drawMenuBackground(ctx, game) {
+  if (!game.menuImage) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+    return;
+  }
+
+  ctx.fillStyle = "#0c0c0c";
+  ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+
+  const scale = Math.min(
+    CONFIG.width / game.menuImage.width,
+    CONFIG.height / game.menuImage.height
+  );
+  const drawW = game.menuImage.width * scale;
+  const drawH = game.menuImage.height * scale;
+  const drawX = (CONFIG.width - drawW) / 2;
+  const drawY = (CONFIG.height - drawH) / 2;
+
+  ctx.drawImage(game.menuImage, drawX, drawY, drawW, drawH);
+  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+  ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+}
+
 function drawControlsBox(ctx) {
-  const boxW = 120;
-  const boxH = 44;
+  const boxW = 108;
+  const boxH = 36;
   const x = CONFIG.width - boxW - 6;
   const y = CONFIG.height - boxH - 6;
 
@@ -237,10 +266,13 @@ function drawControlsBox(ctx) {
   ctx.strokeStyle = "#3a3a3a";
   ctx.strokeRect(x, y, boxW, boxH);
 
-  drawText(ctx, "Move: WASD/Arrows", x + 6, y + 6, "#e6e6e6");
-  drawText(ctx, "Jump: Z  Shoot: X", x + 6, y + 18, "#e6e6e6");
-  drawText(ctx, "Dash: C  Reload: R", x + 6, y + 30, "#e6e6e6");
-  drawText(ctx, "Swap: Q/E", x + 6, y + 40, "#e6e6e6");
+  ctx.save();
+  ctx.font = "8px monospace";
+  drawText(ctx, "Move: WASD/Arrows", x + 6, y + 4, "#e6e6e6");
+  drawText(ctx, "Jump: Z  Shoot: X", x + 6, y + 12, "#e6e6e6");
+  drawText(ctx, "Dash: C  Reload: R", x + 6, y + 20, "#e6e6e6");
+  drawText(ctx, "Swap: Q/E", x + 6, y + 28, "#e6e6e6");
+  ctx.restore();
 }
 
 function drawHudPanels(ctx) {

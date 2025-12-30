@@ -9,6 +9,7 @@ export const CONFIG = {
   ninjaSpawnInterval: 3.2,
   bustHoldTime: 3.0,
   bustEscapeSteps: 4,
+  pauseDuration: 60,
 };
 
 export const PELLETS = [

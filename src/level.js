@@ -146,7 +146,7 @@ export class Level {
         const ty = Math.floor(edgeY / this.tileSize);
         const tile = this.getTile(tx, ty);
         const isSolid = this.isSolidTile(tile);
-        const platformTop = ty * this.tileSize + this.tileSize - 4;
+        const platformTop = ty * this.tileSize;
         const isPlatform =
           allowPlatforms &&
           this.isPlatformTile(tile) &&
@@ -178,7 +178,7 @@ export class Level {
     }
   }
 
-  draw(ctx, camera) {
+  draw(ctx, camera, tileset = null) {
     const startX = Math.max(0, Math.floor(camera.x / this.tileSize));
     const endX = Math.min(
       this.width - 1,
@@ -204,10 +204,14 @@ export class Level {
           ctx.fillStyle = "#5a5a5a";
           ctx.fillRect(x, y, this.tileSize, 2);
         } else if (tile === 2) {
-          ctx.fillStyle = "#b6793a";
-          ctx.fillRect(x, y + this.tileSize - 4, this.tileSize, 4);
-          ctx.fillStyle = "#d9a160";
-          ctx.fillRect(x, y + this.tileSize - 6, this.tileSize, 2);
+          if (tileset && tileset.grass) {
+            ctx.drawImage(tileset.grass, x, y, this.tileSize, this.tileSize);
+          } else {
+            ctx.fillStyle = "#b6793a";
+            ctx.fillRect(x, y + this.tileSize - 4, this.tileSize, 4);
+            ctx.fillStyle = "#d9a160";
+            ctx.fillRect(x, y + this.tileSize - 6, this.tileSize, 2);
+          }
         } else if (tile === 3) {
           ctx.fillStyle = "#d35454";
           ctx.fillRect(x, y, this.tileSize, this.tileSize);

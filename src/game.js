@@ -11,6 +11,12 @@ export class Game {
     this.level = level;
     this.camera = { x: 0, y: 0, w: CONFIG.width, h: CONFIG.height };
     this.background = options.background || null;
+    this.menuImage = options.menuImage || null;
+    this.sprites = options.sprites || null;
+    this.spriteScale = options.spriteScale || 1;
+    this.enemySprites = options.enemySprites || null;
+    this.enemyScales = options.enemyScales || null;
+    this.tileSprites = options.tileSprites || null;
     this.time = 0;
 
     this.player = new Player(level.playerSpawn.x, level.playerSpawn.y);
@@ -30,6 +36,7 @@ export class Game {
     this.copSpawnTimer = CONFIG.copSpawnInterval;
     this.ninjaSpawnTimer = CONFIG.ninjaSpawnInterval;
     this.state = "menu";
+    this.pauseTimer = 0;
     this.bust = {
       active: false,
       timer: 0,
@@ -144,7 +151,23 @@ export class Game {
       return;
     }
 
+    if (this.state === "paused") {
+      this.pauseTimer = Math.max(0, this.pauseTimer - dt);
+      if (this.pauseTimer <= 0) {
+        this.restart();
+      }
+      this.input.clearPressed();
+      return;
+    }
+
     this.safehouseCooldown = Math.max(0, this.safehouseCooldown - dt);
+
+    if (this.input.wasPressed("KeyP")) {
+      this.state = "paused";
+      this.pauseTimer = CONFIG.pauseDuration;
+      this.input.clearPressed();
+      return;
+    }
 
     if (this.bust.active) {
       this.updateBust(dt);
@@ -518,6 +541,7 @@ export class Game {
   restart() {
     this.levelComplete = false;
     this.state = "playing";
+    this.pauseTimer = 0;
     this.score = 0;
     this.coinCount = 0;
     this.combo = 1;
@@ -545,6 +569,7 @@ export class Game {
     this.state = "gameover";
     this.levelComplete = false;
     this.bust.active = false;
+    this.pauseTimer = 0;
     this.player.vx = 0;
     this.player.vy = 0;
     this.player.invuln = 0;
@@ -563,7 +588,7 @@ export class Game {
     ctx.save();
     ctx.translate(-this.camera.x, -this.camera.y);
 
-    this.level.draw(ctx, this.camera);
+    this.level.draw(ctx, this.camera, this.tileSprites);
     this.drawCoins(ctx);
     this.drawSafehouses(ctx);
     this.drawExit(ctx);
@@ -598,6 +623,8 @@ export class Game {
     const drawY = (CONFIG.height - drawH) / 2;
 
     ctx.drawImage(this.background, drawX, drawY, drawW, drawH);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.03)";
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
   }
 
   drawBustLights(ctx) {
@@ -615,13 +642,15 @@ export class Game {
   drawCoins(ctx) {
     for (const coin of this.level.coins) {
       if (coin.collected) continue;
+      const hover = Math.sin(this.time * 6 + coin.x * 0.1) * 1.5;
+      const drawY = coin.y - 4 + hover;
       ctx.fillStyle = "#0b0b0b";
       ctx.beginPath();
-      ctx.arc(coin.x, coin.y, coin.r + 1, 0, Math.PI * 2);
+      ctx.arc(coin.x, drawY, coin.r + 1, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#f2d64b";
       ctx.beginPath();
-      ctx.arc(coin.x, coin.y, coin.r, 0, Math.PI * 2);
+      ctx.arc(coin.x, drawY, coin.r, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -647,6 +676,12 @@ export class Game {
 
   drawEnemies(ctx) {
     for (const enemy of this.enemies) {
+      const sprite = this.getEnemySprite(enemy);
+      if (sprite && sprite.image) {
+        this.drawEnemySprite(ctx, enemy, sprite);
+        continue;
+      }
+
       if (enemy.type === "cop") {
         ctx.fillStyle = "#4b8bff";
         ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
@@ -663,7 +698,98 @@ export class Game {
   }
 
   drawPlayer(ctx) {
-    ctx.fillStyle = this.player.invuln > 0 ? "#9ef5a1" : "#5ad96b";
-    ctx.fillRect(this.player.x, this.player.y, this.player.w, this.player.h);
+    const sprite = this.getPlayerSprite();
+    if (!sprite || !sprite.image) {
+      ctx.fillStyle = this.player.invuln > 0 ? "#9ef5a1" : "#5ad96b";
+      ctx.fillRect(this.player.x, this.player.y, this.player.w, this.player.h);
+      return;
+    }
+
+    const scale = this.spriteScale || 1;
+    const drawW = sprite.image.width * scale;
+    const drawH = sprite.image.height * scale;
+    const drawX = this.player.x + this.player.w / 2 - drawW / 2;
+    const drawY = this.player.y + this.player.h - drawH;
+
+    ctx.save();
+    if (sprite.flip) {
+      ctx.translate(drawX + drawW, drawY);
+      ctx.scale(-1, 1);
+      ctx.drawImage(sprite.image, 0, 0, drawW, drawH);
+    } else {
+      ctx.drawImage(sprite.image, drawX, drawY, drawW, drawH);
+    }
+    ctx.restore();
+  }
+
+  getPlayerSprite() {
+    if (!this.sprites) return null;
+    const { idle, runLeft, runRight, jump, gun } = this.sprites;
+    const facingLeft = this.player.facing < 0;
+    const moving = Math.abs(this.player.vx) > 20;
+
+    if (gun && this.player.shootTimer > 0) {
+      return { image: gun, flip: facingLeft };
+    }
+
+    if (!this.player.onGround) {
+      if (jump) {
+        return { image: jump, flip: facingLeft };
+      }
+      if (idle) {
+        return { image: idle, flip: facingLeft };
+      }
+      return null;
+    }
+
+    if (moving) {
+      if (facingLeft) {
+        if (runLeft) return { image: runLeft, flip: false };
+        if (runRight) return { image: runRight, flip: true };
+      } else {
+        if (runRight) return { image: runRight, flip: false };
+        if (runLeft) return { image: runLeft, flip: true };
+      }
+    }
+
+    if (idle) {
+      return { image: idle, flip: facingLeft };
+    }
+
+    return null;
+  }
+
+  getEnemySprite(enemy) {
+    if (!this.enemySprites) return null;
+    const flip = enemy.vx < 0;
+    if (enemy.type === "ninja") return { image: this.enemySprites.ninja, flip };
+    if (enemy.type === "cop") return { image: this.enemySprites.cop, flip };
+    if (enemy.type === "snake") return { image: this.enemySprites.snake, flip };
+    return null;
+  }
+
+  drawEnemySprite(ctx, enemy, sprite) {
+    const scale =
+      (this.enemyScales && this.enemyScales[enemy.type]) || 1;
+    const drawW = sprite.image.width * scale;
+    const drawH = sprite.image.height * scale;
+    const drawX = enemy.x + enemy.w / 2 - drawW / 2;
+    const baseOffset = enemy.type === "snake" ? -2 : 0;
+    const drawY = enemy.y + enemy.h - drawH + baseOffset;
+
+    if (enemy.type === "snake") {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+      ctx.fillRect(drawX + drawW * 0.2, enemy.y + enemy.h - 2, drawW * 0.6, 3);
+    }
+
+    if (sprite.flip) {
+      ctx.save();
+      ctx.translate(drawX + drawW, drawY);
+      ctx.scale(-1, 1);
+      ctx.drawImage(sprite.image, 0, 0, drawW, drawH);
+      ctx.restore();
+    } else {
+      ctx.drawImage(sprite.image, drawX, drawY, drawW, drawH);
+    }
   }
 }

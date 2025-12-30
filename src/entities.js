@@ -202,6 +202,8 @@ export class Enemy {
     this.lungeTimer = 0;
     this.cooldown = 0;
     this.ambush = options.ambush || false;
+    this.patrolInterval = options.patrolInterval || 2;
+    this.patrolTimer = this.patrolInterval;
   }
 
   update(dt, game, level) {
@@ -237,10 +239,12 @@ export class Enemy {
 
     if (this.ambush) {
       const patrolSpeed = 20;
-      this.vx = this.patrolDir * patrolSpeed;
-      if (Math.abs(this.x - this.homeX) > this.patrolRange) {
+      this.patrolTimer -= dt;
+      if (this.patrolTimer <= 0) {
         this.patrolDir *= -1;
+        this.patrolTimer = this.patrolInterval;
       }
+      this.vx = this.patrolDir * patrolSpeed;
     }
 
     if (this.cooldown <= 0 && Math.abs(dx) < 80 && dy < 40) {
@@ -277,8 +281,8 @@ export class Enemy {
     const dx = game.player.x - this.x;
     const dy = Math.abs(game.player.y - this.y);
     const inRange = Math.abs(dx) < 160 && dy < 72;
-    const chaseSpeed = 95;
-    const patrolSpeed = 60;
+    const chaseSpeed = 80;
+    const patrolSpeed = 50;
 
     this.cooldown = Math.max(0, this.cooldown - dt);
     if (inRange) {

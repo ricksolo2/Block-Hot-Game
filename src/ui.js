@@ -42,6 +42,7 @@ export function drawHud(ctx, game) {
   drawHeat(ctx, game);
   drawCombo(ctx, game);
   drawCoinScore(ctx, game);
+  drawAudioStatus(ctx, game);
   drawWeapon(ctx, game);
   drawControlsBox(ctx);
   drawHints(ctx, game);
@@ -146,6 +147,26 @@ function drawCoinScore(ctx, game) {
   );
 }
 
+function drawAudioStatus(ctx, game) {
+  const state = game.audioState;
+  if (!state) return;
+  ctx.save();
+  ctx.font = "8px monospace";
+  const label =
+    state.muted || state.volume === 0
+      ? "Audio Muted (M)"
+      : "Audio: M  -/+ Vol";
+  const w = ctx.measureText(label).width + 8;
+  const x = 8;
+  const y = 22;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+  ctx.fillRect(x, y - 2, w, 10);
+  ctx.strokeStyle = "#3a3a3a";
+  ctx.strokeRect(x, y - 2, w, 10);
+  drawText(ctx, label, x + 4, y, state.muted ? "#ffb3b3" : "#f7f1cf");
+  ctx.restore();
+}
+
 function drawWeapon(ctx, game) {
   const pellet = PELLETS[game.player.pelletIndex];
   const ammoText =
@@ -201,10 +222,11 @@ function drawInstructions(ctx, game) {
   drawText(ctx, "Jump: Z or Space", 8, 44, "#e6e6e6");
   drawText(ctx, "Shoot: X   Dash: C   Reload: R", 8, 56, "#e6e6e6");
   drawText(ctx, "Swap Pellets: Q / E or 1-4", 8, 68, "#e6e6e6");
-  drawText(ctx, "Goal: Reach the exit, earn coins, manage Heat.", 8, 84, "#e6e6e6");
-  drawText(ctx, "Need at least 8 coins to exit.", 8, 96, "#e6e6e6");
-  drawText(ctx, "Cops raise Heat; safehouses cool it down.", 8, 108, "#e6e6e6");
-  drawText(ctx, "Press Enter to Start or Esc to go Back", 8, 128, "#e6e6e6");
+  drawText(ctx, "Audio: M Mute, -/+ Volume", 8, 80, "#e6e6e6");
+  drawText(ctx, "Goal: Reach the exit, earn coins, manage Heat.", 8, 96, "#e6e6e6");
+  drawText(ctx, "Need at least 8 coins to exit.", 8, 108, "#e6e6e6");
+  drawText(ctx, "Cops raise Heat; safehouses cool it down.", 8, 120, "#e6e6e6");
+  drawText(ctx, "Press Enter to Start or Esc to go Back", 8, 140, "#e6e6e6");
 }
 
 function drawComplete(ctx) {

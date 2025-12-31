@@ -799,20 +799,28 @@ export class Game {
     const scale = this.spriteScale || 1;
     const drawW = sprite.image.width * scale;
     const drawH = sprite.image.height * scale;
-    const drawX = this.player.x + this.player.w / 2 - drawW / 2;
+    let drawX = this.player.x + this.player.w / 2 - drawW / 2;
     let drawY = this.player.y + this.player.h - drawH;
-    if (this.player.onGround && Math.abs(this.player.vx) > 5) {
-      drawY += Math.sin(this.time * 12) * 0.6;
+    const running = this.player.onGround && Math.abs(this.player.vx) > 5;
+    let scaleX = 1;
+    let scaleY = 1;
+
+    if (running) {
+      const speedFactor = clamp(Math.abs(this.player.vx) / 120, 0.3, 1);
+      const phase = this.time * 12 * speedFactor;
+      const bob = Math.sin(phase) * 1.2;
+      const stride = Math.cos(phase) * 0.6 * this.player.facing;
+      const stretch = Math.sin(phase + Math.PI / 2) * 0.03 * speedFactor;
+      drawX += stride;
+      drawY += bob;
+      scaleX = 1 - stretch;
+      scaleY = 1 + stretch;
     }
 
     ctx.save();
-    if (sprite.flip) {
-      ctx.translate(drawX + drawW, drawY);
-      ctx.scale(-1, 1);
-      ctx.drawImage(sprite.image, 0, 0, drawW, drawH);
-    } else {
-      ctx.drawImage(sprite.image, drawX, drawY, drawW, drawH);
-    }
+    ctx.translate(drawX + drawW / 2, drawY + drawH);
+    ctx.scale((sprite.flip ? -1 : 1) * scaleX, scaleY);
+    ctx.drawImage(sprite.image, -drawW / 2, -drawH, drawW, drawH);
     ctx.restore();
   }
 

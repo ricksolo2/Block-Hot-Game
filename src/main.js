@@ -35,6 +35,18 @@ loadingEl.style.display = "none";
 game.start();
 window.addEventListener("resize", () => game.resize());
 
+const music = createMusic("../audio/2012 Drill x Lofi Hype.mp3");
+const audioState = {
+  volume: 0.35,
+  muted: false,
+  lastVolume: 0.35,
+  step: 0.1,
+};
+applyAudioVolume(music, audioState);
+game.audioState = audioState;
+setupMusic(music);
+setupAudioControls(music, audioState);
+
 function loadImage(path) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -98,6 +110,89 @@ async function loadSprite(path) {
   const img = await loadImage(path);
   if (!img) return null;
   return processSprite(img);
+}
+
+function createMusic(path) {
+  const audio = new Audio(encodeURI(path));
+  audio.loop = true;
+  audio.preload = "auto";
+  audio.load();
+  return audio;
+}
+
+function applyAudioVolume(audio, state) {
+  if (!audio) return;
+  audio.volume = state.muted ? 0 : state.volume;
+}
+
+function setupMusic(audio) {
+  if (!audio) return;
+  let started = false;
+  const start = () => {
+    if (started) return;
+    started = true;
+    audio.play().catch(() => {
+      started = false;
+    });
+  };
+  window.addEventListener("keydown", start, { once: true });
+  window.addEventListener("pointerdown", start, { once: true });
+  window.addEventListener("touchstart", start, { once: true });
+}
+
+function setupAudioControls(audio, state) {
+  if (!audio) return;
+  const clampVolume = (value) => Math.max(0, Math.min(1, value));
+  const apply = () => applyAudioVolume(audio, state);
+
+  const setVolume = (value) => {
+    state.volume = clampVolume(value);
+    if (state.muted && state.volume > 0) {
+      state.muted = false;
+    }
+    if (!state.muted && state.volume === 0) {
+      state.muted = true;
+    }
+    if (state.volume > 0) {
+      state.lastVolume = state.volume;
+    }
+    apply();
+  };
+
+  const toggleMute = () => {
+    if (!state.muted) {
+      state.muted = true;
+      state.lastVolume = state.volume || state.lastVolume;
+    } else {
+      state.muted = false;
+      if (state.volume === 0) {
+        state.volume = state.lastVolume || 0.35;
+      }
+    }
+    apply();
+  };
+
+  const adjustVolume = (delta) => {
+    setVolume(state.volume + delta);
+  };
+
+  window.addEventListener("keydown", (event) => {
+    if (event.repeat) return;
+    if (event.code === "Minus" || event.code === "NumpadSubtract") {
+      adjustVolume(-state.step);
+      event.preventDefault();
+      return;
+    }
+    if (event.code === "Equal" || event.code === "NumpadAdd") {
+      adjustVolume(state.step);
+      event.preventDefault();
+      return;
+    }
+    if (event.code === "KeyM") {
+      toggleMute();
+      event.preventDefault();
+    }
+  });
 }
 
 function processSprite(img) {

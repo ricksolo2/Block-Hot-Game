@@ -201,6 +201,9 @@ export class Enemy {
     this.patrolDir = 1;
     this.lungeTimer = 0;
     this.cooldown = 0;
+    this.attackTimer = 0;
+    this.attackCooldown = 0;
+    this.attackDir = 1;
     this.ambush = options.ambush || false;
     this.patrolInterval = options.patrolInterval || 2;
     this.patrolTimer = this.patrolInterval;
@@ -286,15 +289,30 @@ export class Enemy {
     const patrolSpeed = 50;
 
     this.cooldown = Math.max(0, this.cooldown - dt);
+    this.attackCooldown = Math.max(0, this.attackCooldown - dt);
+    if (this.attackTimer > 0) {
+      this.attackTimer = Math.max(0, this.attackTimer - dt);
+      this.vx = this.attackDir * 190;
+      return;
+    }
+
     if (inRange) {
+      if (this.onGround && this.attackCooldown <= 0 && Math.abs(dx) < 80) {
+        this.attackDir = Math.sign(dx) || this.patrolDir;
+        this.vx = this.attackDir * 190;
+        this.vy = -240;
+        this.attackTimer = 0.18;
+        this.attackCooldown = 0.8;
+        return;
+      }
       this.vx = Math.sign(dx) * chaseSpeed;
       if (this.onGround && this.cooldown <= 0) {
         const playerAbove = game.player.y + game.player.h < this.y - 6;
         const stuckOnWall = this.touchingLeft || this.touchingRight;
-        if (playerAbove || stuckOnWall || Math.abs(dx) < 60) {
+        if (playerAbove || stuckOnWall || Math.abs(dx) < 70) {
           this.vy = -300;
           this.vx = Math.sign(dx) * 180;
-          this.cooldown = 0.9;
+          this.cooldown = 0.7;
         }
       }
     } else {

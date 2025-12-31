@@ -194,19 +194,34 @@ function drawBustPrompt(ctx, game) {
 function drawMenu(ctx, game) {
   drawMenuBackground(ctx, game);
 
-  ctx.font = "14px monospace";
-  const title = "BlockHot";
-  const titleW = ctx.measureText(title).width;
-  drawText(ctx, title, (CONFIG.width - titleW) / 2, 40, "#7fd8ff");
+  const panelW = 240;
+  const panelH = 60;
+  const panelX = (CONFIG.width - panelW) / 2;
+  const panelY = (CONFIG.height - panelH) / 2 + 6;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeStyle = "#3a3a3a";
+  ctx.strokeRect(panelX, panelY, panelW, panelH);
 
-  ctx.font = "9px monospace";
+  ctx.font = "18px monospace";
   const start = "Press Enter to Start";
+  const centerY = panelY + 16;
   drawText(
     ctx,
     start,
     (CONFIG.width - ctx.measureText(start).width) / 2,
-    80,
+    centerY,
     "#e6e6e6"
+  );
+
+  ctx.font = "10px monospace";
+  const instructions = "Game Instructions (Press I)";
+  drawText(
+    ctx,
+    instructions,
+    (CONFIG.width - ctx.measureText(instructions).width) / 2,
+    centerY + 18,
+    "#f7f1cf"
   );
 }
 
@@ -214,7 +229,7 @@ function drawInstructions(ctx, game) {
   drawMenuBackground(ctx, game);
 
   ctx.font = "12px monospace";
-  const title = "Instructions";
+  const title = "Game Instructions";
   drawText(ctx, title, 8, 12, "#7fd8ff");
 
   ctx.font = "9px monospace";
@@ -240,9 +255,12 @@ function drawComplete(ctx) {
 function drawGameOver(ctx) {
   ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
   ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
-  const text = "Game Over - Press Enter to restart";
+  const text = "Game Over";
   const w = ctx.measureText(text).width;
-  drawText(ctx, text, (CONFIG.width - w) / 2, CONFIG.height / 2 - 6, "#ff8a8a");
+  drawText(ctx, text, (CONFIG.width - w) / 2, CONFIG.height / 2 - 12, "#ff8a8a");
+  const hint = "Enter: Restart   Esc: Home";
+  const hintW = ctx.measureText(hint).width;
+  drawText(ctx, hint, (CONFIG.width - hintW) / 2, CONFIG.height / 2 + 4, "#e6e6e6");
 }
 
 function drawPaused(ctx, game) {

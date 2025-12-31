@@ -292,17 +292,17 @@ export class Enemy {
     this.attackCooldown = Math.max(0, this.attackCooldown - dt);
     if (this.attackTimer > 0) {
       this.attackTimer = Math.max(0, this.attackTimer - dt);
-      this.vx = this.attackDir * 190;
+      this.vx = this.attackDir * 220;
       return;
     }
 
     if (inRange) {
-      if (this.onGround && this.attackCooldown <= 0 && Math.abs(dx) < 80) {
+      if (this.onGround && this.attackCooldown <= 0 && Math.abs(dx) < 110) {
         this.attackDir = Math.sign(dx) || this.patrolDir;
-        this.vx = this.attackDir * 190;
-        this.vy = -240;
-        this.attackTimer = 0.18;
-        this.attackCooldown = 0.8;
+        this.vx = this.attackDir * 220;
+        this.vy = -280;
+        this.attackTimer = 0.22;
+        this.attackCooldown = 0.7;
         return;
       }
       this.vx = Math.sign(dx) * chaseSpeed;
@@ -310,9 +310,9 @@ export class Enemy {
         const playerAbove = game.player.y + game.player.h < this.y - 6;
         const stuckOnWall = this.touchingLeft || this.touchingRight;
         if (playerAbove || stuckOnWall || Math.abs(dx) < 70) {
-          this.vy = -300;
-          this.vx = Math.sign(dx) * 180;
-          this.cooldown = 0.7;
+          this.vy = -320;
+          this.vx = Math.sign(dx) * 200;
+          this.cooldown = 0.6;
         }
       }
     } else {

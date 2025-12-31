@@ -21,6 +21,49 @@ const [level, background, menuImage, sprites, enemySprites, tileSprites] =
 const spriteScale = sprites?.idle ? 28 / sprites.idle.height : 1;
 const enemyScales = buildEnemyScales(enemySprites);
 
+const music = createMusic("../audio/2012 Drill x Lofi Hype.mp3", 0.3);
+const sfx = {
+  gun: createSfx("../audio/GUNPis-Generate_a_20-second-Elevenlabs.mp3", {
+    volume: 1,
+    poolSize: 6,
+  }),
+  coin: createSfx("../audio/UIAlert-Score_increase_sound-Elevenlabs.mp3", {
+    volume: 0.9,
+    poolSize: 8,
+  }),
+  siren: createSfx("../audio/VEHMisc-police_sirens-Elevenlabs.mp3", {
+    volume: 0.8,
+    poolSize: 2,
+  }),
+  bust: createSfx("../audio/Police_saying_Stop_R_#3-1767160089774.mp3", {
+    volume: 0.9,
+    poolSize: 2,
+  }),
+  death: createSfx("../audio/Man_grunting_when_ge_#1-1767163819478.mp3", {
+    volume: 0.9,
+    poolSize: 2,
+  }),
+  snake: createSfx("../audio/Snake_attacking_#3-1767164227281.mp3", {
+    volume: 0.8,
+    poolSize: 4,
+  }),
+  ninja: createSfx("../audio/Ninja_attacking_#3-1767164007149.mp3", {
+    volume: 0.8,
+    poolSize: 4,
+  }),
+  fall: createSfx("../audio/Man_yelling_loud_whi_#4-1767165390067.mp3", {
+    volume: 0.9,
+    poolSize: 2,
+  }),
+};
+const audioState = {
+  volume: 0.6,
+  muted: false,
+  lastVolume: 0.6,
+  step: 0.1,
+};
+applyAudioState(music, sfx, audioState);
+
 const game = new Game(canvas, ctx, input, level, {
   background,
   menuImage,
@@ -29,23 +72,16 @@ const game = new Game(canvas, ctx, input, level, {
   enemySprites,
   enemyScales,
   tileSprites,
+  sfx,
 });
+game.music = music;
 loadingEl.style.display = "none";
 
 game.start();
 window.addEventListener("resize", () => game.resize());
-
-const music = createMusic("../audio/2012 Drill x Lofi Hype.mp3");
-const audioState = {
-  volume: 0.35,
-  muted: false,
-  lastVolume: 0.35,
-  step: 0.1,
-};
-applyAudioVolume(music, audioState);
 game.audioState = audioState;
-setupMusic(music);
-setupAudioControls(music, audioState);
+setupAudioStart(music, sfx);
+setupAudioControls(music, sfx, audioState);
 
 function loadImage(path) {
   return new Promise((resolve) => {
@@ -112,38 +148,101 @@ async function loadSprite(path) {
   return processSprite(img);
 }
 
-function createMusic(path) {
-  const audio = new Audio(encodeURI(path));
+function createMusic(path, baseVolume = 1) {
+  const audio = new Audio(encodePath(path));
   audio.loop = true;
   audio.preload = "auto";
   audio.load();
+  audio.baseVolume = baseVolume;
   return audio;
 }
 
-function applyAudioVolume(audio, state) {
-  if (!audio) return;
-  audio.volume = state.muted ? 0 : state.volume;
+function createSfx(path, options = {}) {
+  const poolSize = options.poolSize ?? 4;
+  const baseVolume = options.volume ?? 1;
+  const clips = Array.from({ length: poolSize }, () => {
+    const clip = new Audio(encodePath(path));
+    clip.preload = "auto";
+    clip.load();
+    return clip;
+  });
+  let index = 0;
+  let primed = false;
+  return {
+    baseVolume,
+    setVolume(masterVolume) {
+      const volume = masterVolume * baseVolume;
+      clips.forEach((clip) => {
+        clip.volume = volume;
+      });
+    },
+    prime() {
+      if (primed) return;
+      primed = true;
+      clips.forEach((clip) => {
+        const prevVolume = clip.volume;
+        clip.volume = 0;
+        clip.play()
+          .then(() => {
+            clip.pause();
+            clip.currentTime = 0;
+            clip.volume = prevVolume;
+          })
+          .catch(() => {
+            clip.volume = prevVolume;
+          });
+      });
+    },
+    play() {
+      const clip = clips[index];
+      index = (index + 1) % clips.length;
+      clip.currentTime = 0;
+      clip.play().catch(() => {});
+    },
+  };
 }
 
-function setupMusic(audio) {
-  if (!audio) return;
+function encodePath(path) {
+  return path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
+function applyAudioState(music, sfx, state) {
+  const volume = state.muted ? 0 : state.volume;
+  if (music) {
+    music.volume = volume * (music.baseVolume ?? 1);
+  }
+  if (sfx) {
+    Object.values(sfx).forEach((sound) => sound.setVolume(volume));
+  }
+}
+
+function setupAudioStart(audio, sfx) {
+  if (!audio && !sfx) return;
   let started = false;
   const start = () => {
     if (started) return;
     started = true;
-    audio.play().catch(() => {
-      started = false;
-    });
+    if (audio) {
+      audio.play().catch(() => {
+        started = false;
+      });
+    }
+    if (sfx) {
+      Object.values(sfx).forEach((sound) => sound.prime && sound.prime());
+    }
   };
   window.addEventListener("keydown", start, { once: true });
   window.addEventListener("pointerdown", start, { once: true });
   window.addEventListener("touchstart", start, { once: true });
 }
 
-function setupAudioControls(audio, state) {
-  if (!audio) return;
+function setupAudioControls(music, sfx, state) {
+  if (!music && !sfx) return;
   const clampVolume = (value) => Math.max(0, Math.min(1, value));
-  const apply = () => applyAudioVolume(audio, state);
+  const apply = () => applyAudioState(music, sfx, state);
 
   const setVolume = (value) => {
     state.volume = clampVolume(value);

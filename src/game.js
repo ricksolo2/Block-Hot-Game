@@ -17,6 +17,7 @@ export class Game {
     this.enemySprites = options.enemySprites || null;
     this.enemyScales = options.enemyScales || null;
     this.tileSprites = options.tileSprites || null;
+    this.sfx = options.sfx || null;
     this.time = 0;
     this.shakeTime = 0;
     this.shakeDuration = 0;
@@ -157,6 +158,8 @@ export class Game {
     if (this.state === "gameover") {
       if (this.input.wasPressed("Enter")) {
         this.restart();
+      } else if (this.input.wasPressed("Escape")) {
+        this.returnToMenu();
       }
       this.input.clearPressed();
       return;
@@ -265,6 +268,9 @@ export class Game {
       maxSpeed: 90,
       life: 0.25,
     });
+    if (this.sfx && this.sfx.gun) {
+      this.sfx.gun.play();
+    }
   }
 
   handleProjectileHits() {
@@ -364,6 +370,12 @@ export class Game {
           this.startBust(enemy);
         } else {
           const dir = this.player.x < enemy.x ? -1 : 1;
+          if (enemy.type === "snake" && this.sfx && this.sfx.snake) {
+            this.sfx.snake.play();
+          }
+          if (enemy.type === "ninja" && this.sfx && this.sfx.ninja) {
+            this.sfx.ninja.play();
+          }
           this.damagePlayer(1, dir);
         }
         break;
@@ -379,6 +391,12 @@ export class Game {
     this.bust.dir = this.player.x < enemy.x ? -1 : 1;
     this.player.vx = 0;
     this.player.vy = 0;
+    if (this.sfx && this.sfx.siren) {
+      this.sfx.siren.play();
+    }
+    if (this.sfx && this.sfx.bust) {
+      this.sfx.bust.play();
+    }
   }
 
   updateBust(dt) {
@@ -429,6 +447,9 @@ export class Game {
         this.coinCount += 1;
         this.score += 10 * this.combo;
         this.addCombo();
+        if (this.sfx && this.sfx.coin) {
+          this.sfx.coin.play();
+        }
       }
     }
   }
@@ -454,6 +475,7 @@ export class Game {
     ) {
       this.levelComplete = true;
       this.state = "complete";
+      this.stopMusic();
     }
   }
 
@@ -595,6 +617,9 @@ export class Game {
     } else {
       this.respawnAtStart({ reduceHeat: true });
     }
+    if (this.sfx && this.sfx.fall) {
+      this.sfx.fall.play();
+    }
   }
 
   restart() {
@@ -622,11 +647,25 @@ export class Game {
     this.checkpoint.x = this.level.playerSpawn.x;
     this.checkpoint.y = this.level.playerSpawn.y;
     this.spawnInitialEnemies();
+    this.resumeMusic();
   }
 
   returnToMenu() {
     this.restart();
     this.state = "menu";
+  }
+
+  stopMusic() {
+    if (this.music && !this.music.paused) {
+      this.music.pause();
+      this.music.currentTime = 0;
+    }
+  }
+
+  resumeMusic() {
+    if (this.music && this.music.paused) {
+      this.music.play().catch(() => {});
+    }
   }
 
   triggerGameOver() {
@@ -637,6 +676,10 @@ export class Game {
     this.player.vx = 0;
     this.player.vy = 0;
     this.player.invuln = 0;
+    this.stopMusic();
+    if (this.sfx && this.sfx.death) {
+      this.sfx.death.play();
+    }
   }
 
   isPlayerInGrass() {
@@ -799,28 +842,17 @@ export class Game {
     const scale = this.spriteScale || 1;
     const drawW = sprite.image.width * scale;
     const drawH = sprite.image.height * scale;
-    let drawX = this.player.x + this.player.w / 2 - drawW / 2;
-    let drawY = this.player.y + this.player.h - drawH;
-    const running = this.player.onGround && Math.abs(this.player.vx) > 5;
-    let scaleX = 1;
-    let scaleY = 1;
-
-    if (running) {
-      const speedFactor = clamp(Math.abs(this.player.vx) / 120, 0.3, 1);
-      const phase = this.time * 12 * speedFactor;
-      const bob = Math.sin(phase) * 1.2;
-      const stride = Math.cos(phase) * 0.6 * this.player.facing;
-      const stretch = Math.sin(phase + Math.PI / 2) * 0.03 * speedFactor;
-      drawX += stride;
-      drawY += bob;
-      scaleX = 1 - stretch;
-      scaleY = 1 + stretch;
-    }
+    const drawX = this.player.x + this.player.w / 2 - drawW / 2;
+    const drawY = this.player.y + this.player.h - drawH;
 
     ctx.save();
-    ctx.translate(drawX + drawW / 2, drawY + drawH);
-    ctx.scale((sprite.flip ? -1 : 1) * scaleX, scaleY);
-    ctx.drawImage(sprite.image, -drawW / 2, -drawH, drawW, drawH);
+    if (sprite.flip) {
+      ctx.translate(drawX + drawW, drawY);
+      ctx.scale(-1, 1);
+      ctx.drawImage(sprite.image, 0, 0, drawW, drawH);
+    } else {
+      ctx.drawImage(sprite.image, drawX, drawY, drawW, drawH);
+    }
     ctx.restore();
   }
 
@@ -828,7 +860,7 @@ export class Game {
     if (!this.sprites) return null;
     const { idle, runLeft, runRight, jump, gun } = this.sprites;
     const facingLeft = this.player.facing < 0;
-    const moving = Math.abs(this.player.vx) > 5;
+    const moving = Math.abs(this.player.vx) > 20;
 
     if (gun && this.player.shootTimer > 0) {
       return { image: gun, flip: facingLeft };

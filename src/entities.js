@@ -188,9 +188,11 @@ export class Enemy {
     this.y = y;
     this.vx = 0;
     this.vy = 0;
-    this.w = type === "cop" ? 12 : 12;
-    this.h = type === "cop" ? 16 : 10;
-    this.hp = options.hp || (type === "cop" ? 2 : 1);
+    const size = getEnemySize(type);
+    this.w = size.w;
+    this.h = size.h;
+    const baseHp = type === "cop" || type === "swat" || type === "bulldog" ? 2 : 1;
+    this.hp = options.hp || baseHp;
     this.maxHp = this.hp;
     this.stunTimer = 0;
     this.onGround = false;
@@ -204,6 +206,9 @@ export class Enemy {
     this.attackTimer = 0;
     this.attackCooldown = 0;
     this.attackDir = 1;
+    this.facing = 1;
+    this.shootTimer = 0;
+    this.shootCooldown = 0;
     this.ambush = options.ambush || false;
     this.patrolInterval = options.patrolInterval || 2;
     this.patrolTimer = this.patrolInterval;
@@ -211,19 +216,30 @@ export class Enemy {
   }
 
   update(dt, game, level) {
+    this.shootTimer = Math.max(0, this.shootTimer - dt);
+    this.shootCooldown = Math.max(0, this.shootCooldown - dt);
     if (this.stunTimer > 0) {
       this.stunTimer = Math.max(0, this.stunTimer - dt);
       this.vx = 0;
     } else if (this.type === "snake") {
       this.updateSnake(dt, game);
+    } else if (this.type === "bulldog") {
+      this.updateBulldog(dt, game);
     } else if (this.type === "cop") {
       this.updateCop(dt, game);
+    } else if (this.type === "swat") {
+      this.updateSwat(dt, game);
     } else if (this.type === "ninja") {
+      this.updateNinja(dt, game);
+    } else if (this.type === "redNinja" || this.type === "blueNinja") {
       this.updateNinja(dt, game);
     }
 
     this.vy += CONFIG.gravity * dt;
     level.moveEntity(this, dt, true);
+    if (this.vx !== 0) {
+      this.facing = Math.sign(this.vx);
+    }
   }
 
   updateSnake(dt, game) {
@@ -263,6 +279,35 @@ export class Enemy {
     }
   }
 
+  updateBulldog(dt, game) {
+    if (this.lungeTimer > 0) {
+      this.lungeTimer -= dt;
+      this.vx = this.lungeDir * 180;
+      if (this.lungeTimer <= 0) {
+        this.vx = 0;
+      }
+      return;
+    }
+
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    const dx = game.player.x - this.x;
+    const dy = Math.abs(game.player.y - this.y);
+
+    if (this.cooldown <= 0 && Math.abs(dx) < 90 && dy < 40) {
+      this.lungeTimer = 0.24;
+      this.cooldown = 1.2;
+      this.lungeDir = Math.sign(dx) || this.patrolDir;
+      this.vx = this.lungeDir * 180;
+      return;
+    }
+
+    const patrolSpeed = 45;
+    this.vx = this.patrolDir * patrolSpeed;
+    if (Math.abs(this.x - this.homeX) > this.patrolRange) {
+      this.patrolDir *= -1;
+    }
+  }
+
   updateCop(dt, game) {
     const heat = game.heatStars;
     const patrolSpeed = 40 + heat * 8;
@@ -273,6 +318,28 @@ export class Enemy {
 
     if (inRange) {
       this.vx = Math.sign(dx) * chaseSpeed;
+    } else {
+      this.vx = this.patrolDir * patrolSpeed;
+      if (Math.abs(this.x - this.homeX) > this.patrolRange) {
+        this.patrolDir *= -1;
+      }
+    }
+  }
+
+  updateSwat(dt, game) {
+    const dx = game.player.x - this.x;
+    const dy = Math.abs(game.player.y - this.y);
+    const inRange = Math.abs(dx) < 200 && dy < 80;
+    const patrolSpeed = 35;
+
+    if (inRange) {
+      this.facing = Math.sign(dx) || this.facing;
+      this.vx = 0;
+      if (this.shootCooldown <= 0) {
+        this.shootTimer = 0.22;
+        this.shootCooldown = 1.1;
+        game.spawnEnemyProjectile(this, this.facing);
+      }
     } else {
       this.vx = this.patrolDir * patrolSpeed;
       if (Math.abs(this.x - this.homeX) > this.patrolRange) {
@@ -355,5 +422,54 @@ export class Projectile {
         return;
       }
     }
+  }
+}
+
+export class EnemyProjectile {
+  constructor(x, y, vx, vy) {
+    this.x = x;
+    this.y = y;
+    this.vx = vx;
+    this.vy = vy;
+    this.w = 5;
+    this.h = 3;
+    this.life = 1.4;
+    this.damage = 1;
+    this.dead = false;
+  }
+
+  update(dt, level) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.life -= dt;
+
+    if (this.life <= 0) {
+      this.dead = true;
+      return;
+    }
+
+    const tiles = level.tilesInRect(this);
+    for (const tile of tiles) {
+      if (level.isSolidTile(tile.type)) {
+        this.dead = true;
+        return;
+      }
+    }
+  }
+}
+
+function getEnemySize(type) {
+  switch (type) {
+    case "cop":
+    case "swat":
+      return { w: 12, h: 16 };
+    case "bulldog":
+      return { w: 14, h: 10 };
+    case "ninja":
+    case "redNinja":
+    case "blueNinja":
+    case "snake":
+    default:
+      return { w: 12, h: 10 };
   }
 }

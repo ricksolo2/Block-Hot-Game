@@ -20,7 +20,7 @@ export function drawHud(ctx, game) {
   }
 
   if (game.state === "complete") {
-    drawComplete(ctx);
+    drawComplete(ctx, game);
     ctx.restore();
     return;
   }
@@ -233,23 +233,52 @@ function drawInstructions(ctx, game) {
   drawText(ctx, title, 8, 12, "#7fd8ff");
 
   ctx.font = "9px monospace";
+  const requiredCoins =
+    game.level?.minCoinsToExit ?? CONFIG.minCoinsToExit;
   drawText(ctx, "Move: WASD / Arrows", 8, 32, "#e6e6e6");
   drawText(ctx, "Jump: Z or Space", 8, 44, "#e6e6e6");
   drawText(ctx, "Shoot: X   Dash: C   Reload: R", 8, 56, "#e6e6e6");
   drawText(ctx, "Swap Pellets: Q / E or 1-4", 8, 68, "#e6e6e6");
   drawText(ctx, "Audio: M Mute, -/+ Volume", 8, 80, "#e6e6e6");
   drawText(ctx, "Goal: Reach the exit, earn coins, manage Heat.", 8, 96, "#e6e6e6");
-  drawText(ctx, "Need at least 8 coins to exit.", 8, 108, "#e6e6e6");
+  drawText(
+    ctx,
+    `Need at least ${requiredCoins} coins to exit.`,
+    8,
+    108,
+    "#e6e6e6"
+  );
   drawText(ctx, "Cops raise Heat; safehouses cool it down.", 8, 120, "#e6e6e6");
   drawText(ctx, "Press Enter to Start or Esc to go Back", 8, 140, "#e6e6e6");
 }
 
-function drawComplete(ctx) {
+function drawComplete(ctx, game) {
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
-  const text = "Level Complete - Press Enter to restart";
-  const w = ctx.measureText(text).width;
-  drawText(ctx, text, (CONFIG.width - w) / 2, CONFIG.height / 2 - 6, "#7fd8ff");
+  const stats = game.completeStats || {
+    coins: game.coinCount,
+    score: game.score,
+    level: game.levelIndex + 1,
+  };
+  const title = stats.level ? `Level ${stats.level} Complete` : "Level Complete";
+  ctx.font = "14px monospace";
+  const titleW = ctx.measureText(title).width;
+  drawText(ctx, title, (CONFIG.width - titleW) / 2, CONFIG.height / 2 - 20, "#7fd8ff");
+
+  ctx.font = "10px monospace";
+  const coinsText = `Coins: ${stats.coins}`;
+  const scoreText = `Score: ${stats.score}`;
+  const coinsW = ctx.measureText(coinsText).width;
+  const scoreW = ctx.measureText(scoreText).width;
+  drawText(ctx, coinsText, (CONFIG.width - coinsW) / 2, CONFIG.height / 2 - 4, "#f7f1cf");
+  drawText(ctx, scoreText, (CONFIG.width - scoreW) / 2, CONFIG.height / 2 + 8, "#f7f1cf");
+
+  const nextText = game.hasNextLevel() ? "Enter -> Next Level" : "Enter: Restart";
+  const homeText = "Esc: Home";
+  const nextW = ctx.measureText(nextText).width;
+  const homeW = ctx.measureText(homeText).width;
+  drawText(ctx, nextText, (CONFIG.width - nextW) / 2, CONFIG.height / 2 + 24, "#e6e6e6");
+  drawText(ctx, homeText, (CONFIG.width - homeW) / 2, CONFIG.height / 2 + 36, "#e6e6e6");
 }
 
 function drawGameOver(ctx) {

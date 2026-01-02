@@ -1,6 +1,6 @@
 import { CONFIG, PELLETS } from "./constants.js";
 import { clamp, rectsOverlap, randItem } from "./utils.js";
-import { Player, Enemy, Projectile } from "./entities.js";
+import { Player, Enemy, Projectile, EnemyProjectile } from "./entities.js";
 import { drawHud } from "./ui.js";
 
 export class Game {
@@ -8,9 +8,15 @@ export class Game {
     this.canvas = canvas;
     this.ctx = ctx;
     this.input = input;
-    this.level = level;
+    this.levels = options.levels || null;
+    this.levelIndex = options.levelIndex || 0;
+    const levelData =
+      this.levels && this.levels[this.levelIndex]
+        ? this.levels[this.levelIndex]
+        : { level, background: options.background || null };
+    this.level = levelData.level;
     this.camera = { x: 0, y: 0, w: CONFIG.width, h: CONFIG.height };
-    this.background = options.background || null;
+    this.background = levelData.background || options.background || null;
     this.menuImage = options.menuImage || null;
     this.sprites = options.sprites || null;
     this.spriteScale = options.spriteScale || 1;
@@ -29,6 +35,7 @@ export class Game {
 
     this.enemies = [];
     this.projectiles = [];
+    this.enemyProjectiles = [];
     this.heatPoints = 0;
     this.heatStars = 0;
     this.combo = 1;
@@ -38,6 +45,7 @@ export class Game {
     this.coinCount = 0;
     this.safehouseCooldown = 0;
     this.levelComplete = false;
+    this.completeStats = null;
     this.copSpawnTimer = CONFIG.copSpawnInterval;
     this.ninjaSpawnTimer = CONFIG.ninjaSpawnInterval;
     this.state = "menu";
@@ -95,8 +103,14 @@ export class Game {
         })
       );
     }
+    for (const spawn of this.level.bulldogSpawns) {
+      this.enemies.push(this.createBulldog(spawn));
+    }
     for (const spawn of this.level.copSpawns) {
       this.enemies.push(this.createCop(spawn));
+    }
+    for (const spawn of this.level.swatSpawns) {
+      this.enemies.push(this.createSwat(spawn));
     }
     for (const spawn of this.level.ninjaSpawns) {
       this.enemies.push(this.createNinja(spawn));
@@ -112,9 +126,24 @@ export class Game {
   }
 
   createNinja(spawn) {
-    return new Enemy("ninja", spawn.x, spawn.y, {
+    const type = spawn.type || "ninja";
+    return new Enemy(type, spawn.x, spawn.y, {
       hp: 2,
       patrolRange: spawn.patrolRange || 80,
+    });
+  }
+
+  createBulldog(spawn) {
+    return new Enemy("bulldog", spawn.x, spawn.y, {
+      hp: 2,
+      patrolRange: spawn.patrolRange || 60,
+    });
+  }
+
+  createSwat(spawn) {
+    return new Enemy("swat", spawn.x, spawn.y, {
+      hp: 3,
+      patrolRange: spawn.patrolRange || 96,
     });
   }
 
@@ -149,7 +178,13 @@ export class Game {
 
     if (this.state === "complete") {
       if (this.input.wasPressed("Enter")) {
-        this.restart();
+        if (this.hasNextLevel()) {
+          this.advanceLevel();
+        } else {
+          this.restart();
+        }
+      } else if (this.input.wasPressed("Escape")) {
+        this.returnToMenu();
       }
       this.input.clearPressed();
       return;
@@ -205,11 +240,18 @@ export class Game {
     }
 
     this.projectiles = this.projectiles.filter((projectile) => !projectile.dead);
+    for (const projectile of this.enemyProjectiles) {
+      projectile.update(dt, this.level);
+    }
+    this.enemyProjectiles = this.enemyProjectiles.filter(
+      (projectile) => !projectile.dead
+    );
     this.updateParticles(dt);
 
     this.handleProjectileHits();
     this.handlePlayerHazards();
     this.handlePlayerEnemyCollision();
+    this.handleEnemyProjectiles();
     this.handleCoins();
     this.handleSafehouses();
     this.handleExit();
@@ -271,6 +313,13 @@ export class Game {
     if (this.sfx && this.sfx.gun) {
       this.sfx.gun.play();
     }
+  }
+
+  spawnEnemyProjectile(enemy, dir) {
+    const speed = 220;
+    const x = enemy.x + enemy.w / 2 + dir * (enemy.w / 2 + 2);
+    const y = enemy.y + enemy.h * 0.4;
+    this.enemyProjectiles.push(new EnemyProjectile(x, y, speed * dir, 0));
   }
 
   handleProjectileHits() {
@@ -342,7 +391,7 @@ export class Game {
   }
 
   neutralizeEnemy(enemy) {
-    if (enemy.type === "cop") {
+    if (enemy.type === "cop" || enemy.type === "swat") {
       this.addHeatStars(1);
     }
 
@@ -370,14 +419,37 @@ export class Game {
           this.startBust(enemy);
         } else {
           const dir = this.player.x < enemy.x ? -1 : 1;
-          if (enemy.type === "snake" && this.sfx && this.sfx.snake) {
+          if (
+            (enemy.type === "snake" || enemy.type === "bulldog") &&
+            this.sfx &&
+            this.sfx.snake
+          ) {
             this.sfx.snake.play();
           }
-          if (enemy.type === "ninja" && this.sfx && this.sfx.ninja) {
+          if (
+            (enemy.type === "ninja" ||
+              enemy.type === "redNinja" ||
+              enemy.type === "blueNinja") &&
+            this.sfx &&
+            this.sfx.ninja
+          ) {
             this.sfx.ninja.play();
           }
           this.damagePlayer(1, dir);
         }
+        break;
+      }
+    }
+  }
+
+  handleEnemyProjectiles() {
+    if (this.bust.active || this.player.invuln > 0) return;
+    for (const projectile of this.enemyProjectiles) {
+      if (projectile.dead) continue;
+      if (rectsOverlap(this.player, projectile)) {
+        const dir = projectile.vx < 0 ? -1 : 1;
+        this.damagePlayer(projectile.damage, dir);
+        projectile.dead = true;
         break;
       }
     }
@@ -469,12 +541,19 @@ export class Game {
   }
 
   handleExit() {
+    const requiredCoins =
+      this.level.minCoinsToExit ?? CONFIG.minCoinsToExit;
     if (
       rectsOverlap(this.player, this.level.exit) &&
-      this.coinCount >= CONFIG.minCoinsToExit
+      this.coinCount >= requiredCoins
     ) {
       this.levelComplete = true;
       this.state = "complete";
+      this.completeStats = {
+        coins: this.coinCount,
+        score: this.score,
+        level: this.levelIndex + 1,
+      };
       this.stopMusic();
     }
   }
@@ -487,9 +566,14 @@ export class Game {
   }
 
   updateEnemySpawns(dt) {
-    const activeCops = this.enemies.filter((enemy) => enemy.type === "cop").length;
+    const activeCops = this.enemies.filter(
+      (enemy) => enemy.type === "cop" || enemy.type === "swat"
+    ).length;
     const activeNinjas = this.enemies.filter(
-      (enemy) => enemy.type === "ninja"
+      (enemy) =>
+        enemy.type === "ninja" ||
+        enemy.type === "redNinja" ||
+        enemy.type === "blueNinja"
     ).length;
 
     const targetCops = clamp(1 + this.heatStars, 1, 5);
@@ -622,10 +706,32 @@ export class Game {
     }
   }
 
+  hasNextLevel() {
+    return this.levels && this.levelIndex < this.levels.length - 1;
+  }
+
+  setLevelIndex(index) {
+    if (!this.levels || !this.levels[index]) return;
+    const levelData = this.levels[index];
+    this.levelIndex = index;
+    this.level = levelData.level;
+    this.background = levelData.background || this.background;
+  }
+
+  advanceLevel() {
+    if (!this.hasNextLevel()) {
+      this.restart();
+      return;
+    }
+    this.setLevelIndex(this.levelIndex + 1);
+    this.restart();
+  }
+
   restart() {
     this.levelComplete = false;
     this.state = "playing";
     this.pauseTimer = 0;
+    this.completeStats = null;
     this.score = 0;
     this.coinCount = 0;
     this.combo = 1;
@@ -638,6 +744,9 @@ export class Game {
     this.bust.active = false;
     this.bust.timer = 0;
     this.bust.escape = 0;
+    this.projectiles = [];
+    this.enemyProjectiles = [];
+    this.particles = [];
 
     for (const coin of this.level.coins) {
       coin.collected = false;
@@ -651,6 +760,9 @@ export class Game {
   }
 
   returnToMenu() {
+    if (this.levels && this.levelIndex !== 0) {
+      this.setLevelIndex(0);
+    }
     this.restart();
     this.state = "menu";
   }
@@ -703,6 +815,7 @@ export class Game {
     this.drawSafehouses(ctx);
     this.drawExit(ctx);
     this.drawProjectiles(ctx);
+    this.drawEnemyProjectiles(ctx);
     this.drawParticles(ctx);
     this.drawEnemies(ctx);
     this.drawPlayer(ctx);
@@ -788,6 +901,13 @@ export class Game {
     }
   }
 
+  drawEnemyProjectiles(ctx) {
+    ctx.fillStyle = "#ff8a8a";
+    for (const projectile of this.enemyProjectiles) {
+      ctx.fillRect(projectile.x, projectile.y, projectile.w, projectile.h);
+    }
+  }
+
   drawParticles(ctx) {
     for (const particle of this.particles) {
       const alpha = Math.max(0, particle.life / particle.maxLife);
@@ -811,14 +931,31 @@ export class Game {
         continue;
       }
 
-      if (enemy.type === "cop") {
-        ctx.fillStyle = enemy.flashTimer > 0 ? "#ffffff" : "#4b8bff";
+      const flash = enemy.flashTimer > 0;
+      if (enemy.type === "cop" || enemy.type === "swat") {
+        ctx.fillStyle = flash ? "#ffffff" : "#3d6fd9";
         ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
       } else if (enemy.type === "ninja") {
-        ctx.fillStyle = enemy.flashTimer > 0 ? "#ffffff" : "#141414";
+        ctx.fillStyle = flash ? "#ffffff" : "#141414";
         ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+      } else if (enemy.type === "redNinja") {
+        ctx.fillStyle = flash ? "#ffffff" : "#d94b4b";
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+      } else if (enemy.type === "blueNinja") {
+        ctx.fillStyle = flash ? "#ffffff" : "#4b8bff";
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+      } else if (enemy.type === "bulldog") {
+        if (flash) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(enemy.x - 1, enemy.y - 1, enemy.w + 2, enemy.h + 2);
+        } else {
+          ctx.fillStyle = "#4b2f1f";
+          ctx.fillRect(enemy.x - 1, enemy.y - 1, enemy.w + 2, enemy.h + 2);
+          ctx.fillStyle = "#8b5a3c";
+          ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+        }
       } else {
-        if (enemy.flashTimer > 0) {
+        if (flash) {
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(enemy.x - 1, enemy.y - 1, enemy.w + 2, enemy.h + 2);
         } else {
@@ -895,10 +1032,42 @@ export class Game {
 
   getEnemySprite(enemy) {
     if (!this.enemySprites) return null;
-    const flip = enemy.vx < 0;
-    if (enemy.type === "ninja") return { image: this.enemySprites.ninja, flip };
-    if (enemy.type === "cop") return { image: this.enemySprites.cop, flip };
-    if (enemy.type === "snake") return { image: this.enemySprites.snake, flip };
+    const facing = enemy.facing || (enemy.vx < 0 ? -1 : 1);
+    const flip = facing < 0;
+
+    if (enemy.type === "redNinja") {
+      const sprite = this.enemySprites.redNinja || this.enemySprites.ninja;
+      return sprite ? { image: sprite, flip } : null;
+    }
+    if (enemy.type === "blueNinja") {
+      const sprite = this.enemySprites.blueNinja || this.enemySprites.ninja;
+      return sprite ? { image: sprite, flip } : null;
+    }
+    if (enemy.type === "ninja") {
+      return { image: this.enemySprites.ninja, flip };
+    }
+    if (enemy.type === "swat") {
+      if (enemy.shootTimer > 0) {
+        if (facing < 0 && this.enemySprites.swatShootLeft) {
+          return { image: this.enemySprites.swatShootLeft, flip: false };
+        }
+        if (facing > 0 && this.enemySprites.swatShootRight) {
+          return { image: this.enemySprites.swatShootRight, flip: false };
+        }
+      }
+      const sprite = this.enemySprites.swat || this.enemySprites.cop;
+      return sprite ? { image: sprite, flip } : null;
+    }
+    if (enemy.type === "cop") {
+      return { image: this.enemySprites.cop, flip };
+    }
+    if (enemy.type === "bulldog") {
+      const sprite = this.enemySprites.bulldog || this.enemySprites.snake;
+      return sprite ? { image: sprite, flip } : null;
+    }
+    if (enemy.type === "snake") {
+      return { image: this.enemySprites.snake, flip };
+    }
     return null;
   }
 
@@ -908,10 +1077,11 @@ export class Game {
     const drawW = sprite.image.width * scale;
     const drawH = sprite.image.height * scale;
     const drawX = enemy.x + enemy.w / 2 - drawW / 2;
-    const baseOffset = enemy.type === "snake" ? -2 : 0;
+    const baseOffset =
+      enemy.type === "snake" || enemy.type === "bulldog" ? -2 : 0;
     const drawY = enemy.y + enemy.h - drawH + baseOffset;
 
-    if (enemy.type === "snake") {
+    if (enemy.type === "snake" || enemy.type === "bulldog") {
       ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
       ctx.fillRect(drawX + drawW * 0.2, enemy.y + enemy.h - 2, drawW * 0.6, 3);
     }

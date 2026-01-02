@@ -9,15 +9,29 @@ ctx.imageSmoothingEnabled = false;
 const loadingEl = document.getElementById("loading");
 
 const input = new Input(window);
-const [level, background, menuImage, sprites, enemySprites, tileSprites] =
-  await Promise.all([
-    loadLevel("../levels/level1.json"),
-    loadImage("../assets/background.png"),
-    loadImage("../assets/Loading Screen.png"),
-    loadPlayerSprites(),
-    loadEnemySprites(),
-    loadTileSprites(),
-  ]);
+const [
+  level1,
+  level2,
+  background1,
+  background2,
+  menuImage,
+  sprites,
+  enemySprites,
+  tileSprites,
+] = await Promise.all([
+  loadLevel("../levels/level1.json"),
+  loadLevel("../levels/level2.json"),
+  loadImage("../assets/background.png"),
+  loadImage("../assets/Level 2 background .png"),
+  loadImage("../assets/Loading Screen.png"),
+  loadPlayerSprites(),
+  loadEnemySprites(),
+  loadTileSprites(),
+]);
+const levels = [
+  { level: level1, background: background1 },
+  { level: level2, background: background2 || background1 },
+];
 const spriteScale = sprites?.idle ? 28 / sprites.idle.height : 1;
 const enemyScales = buildEnemyScales(enemySprites);
 
@@ -64,8 +78,9 @@ const audioState = {
 };
 applyAudioState(music, sfx, audioState);
 
-const game = new Game(canvas, ctx, input, level, {
-  background,
+const game = new Game(canvas, ctx, input, levels[0].level, {
+  levels,
+  background: levels[0].background,
   menuImage,
   sprites,
   spriteScale,
@@ -113,17 +128,53 @@ async function loadPlayerSprites() {
 }
 
 async function loadEnemySprites() {
-  const [ninja, cop, snake] = await Promise.all([
+  const [
+    ninja,
+    cop,
+    snake,
+    redNinja,
+    blueNinja,
+    swat,
+    swatShootLeft,
+    swatShootRight,
+    bulldog,
+  ] = await Promise.all([
     loadSprite("../assets/Ninja Attacker.png"),
     loadSprite("../assets/Police Character .png"),
     loadSprite("../assets/Snake in Grass.png"),
+    loadSprite("../assets/Red Ninja - L2 .png"),
+    loadSprite("../assets/Blue Ninja - L2.png"),
+    loadSprite("../assets/Swat Cops - L2.png"),
+    loadSprite("../assets/Swat with Gub left.png"),
+    loadSprite("../assets/Swat with Gun right.png"),
+    loadSprite("../assets/Bulldog - L2.png"),
   ]);
 
-  if (!ninja && !cop && !snake) {
+  if (
+    !ninja &&
+    !cop &&
+    !snake &&
+    !redNinja &&
+    !blueNinja &&
+    !swat &&
+    !swatShootLeft &&
+    !swatShootRight &&
+    !bulldog
+  ) {
     return null;
   }
 
-  return { ninja, cop, snake };
+  return {
+    ninja,
+    cop,
+    snake,
+    redNinja,
+    blueNinja,
+    swat,
+    swatShootLeft,
+    swatShootRight,
+    bulldog,
+  };
 }
 
 async function loadTileSprites() {
@@ -137,8 +188,16 @@ function buildEnemyScales(sprites) {
   if (!sprites) return null;
   const scales = {};
   if (sprites.ninja) scales.ninja = 26 / sprites.ninja.height;
+  if (sprites.redNinja) scales.redNinja = 26 / sprites.redNinja.height;
+  if (sprites.blueNinja) scales.blueNinja = 26 / sprites.blueNinja.height;
   if (sprites.cop) scales.cop = 28 / sprites.cop.height;
+  if (sprites.swat || sprites.swatShootRight || sprites.swatShootLeft) {
+    const swatBase =
+      sprites.swat || sprites.swatShootRight || sprites.swatShootLeft;
+    scales.swat = 28 / swatBase.height;
+  }
   if (sprites.snake) scales.snake = 14 / sprites.snake.height;
+  if (sprites.bulldog) scales.bulldog = 16 / sprites.bulldog.height;
   return scales;
 }
 

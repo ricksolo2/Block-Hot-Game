@@ -19,6 +19,12 @@ export class Level {
     this.ninjaSpawns = (spawns.ninjas || []).map((spawn) =>
       resolveSpawn(spawn, this.tileSize)
     );
+    this.bulldogSpawns = (spawns.bulldogs || []).map((spawn) =>
+      resolveSpawn(spawn, this.tileSize)
+    );
+    this.swatSpawns = (spawns.swats || []).map((spawn) =>
+      resolveSpawn(spawn, this.tileSize)
+    );
 
     this.coins = (data.coins || []).map((coin) => {
       const point = resolvePoint(coin, this.tileSize, true);
@@ -36,6 +42,7 @@ export class Level {
       resolveRect(rect, this.tileSize)
     );
     this.exit = resolveRect(data.exit, this.tileSize);
+    this.minCoinsToExit = data.minCoinsToExit ?? CONFIG.minCoinsToExit;
     this.grassZones = (data.grass || []).map((rect) =>
       resolveRect(rect, this.tileSize)
     );

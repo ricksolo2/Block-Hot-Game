@@ -1,9 +1,15 @@
-import { CONFIG } from "./constants.js";
+import { CONFIG } from "./constants.js?v=6";
 
 export class Level {
   constructor(data) {
     this.tileSize = data.tileSize || CONFIG.tileSize;
-    this.legend = data.legend || { "#": 1, "-": 2, "!": 3 };
+    this.legend = {
+      "#": 1,
+      "-": 2,
+      "!": 3,
+      "~": 4,
+      ...(data.legend || {}),
+    };
     this.tiles = this.parseTiles(data.tiles || []);
     this.height = this.tiles.length;
     this.width = this.tiles[0] ? this.tiles[0].length : 0;
@@ -43,8 +49,15 @@ export class Level {
     );
     this.exit = resolveRect(data.exit, this.tileSize);
     this.minCoinsToExit = data.minCoinsToExit ?? CONFIG.minCoinsToExit;
+    this.requiredSwatKills = data.requiredSwatKills || 0;
+    this.barriers = (data.barriers || []).map((barrier) =>
+      resolveBarrier(barrier, this.tileSize)
+    );
     this.grassZones = (data.grass || []).map((rect) =>
       resolveRect(rect, this.tileSize)
+    );
+    this.pickups = (data.pickups || []).map((pickup) =>
+      resolvePickup(pickup, this.tileSize)
     );
   }
 
@@ -63,7 +76,7 @@ export class Level {
   }
 
   isSolidTile(tile) {
-    return tile === 1 || tile === 3;
+    return tile === 1 || tile === 3 || tile === 4;
   }
 
   isPlatformTile(tile) {
@@ -72,6 +85,10 @@ export class Level {
 
   isHazardTile(tile) {
     return tile === 3;
+  }
+
+  isWetTile(tile) {
+    return tile === 4;
   }
 
   tilesInRect(rect) {
@@ -111,6 +128,7 @@ export class Level {
     entity.onPlatform = false;
     entity.touchingLeft = false;
     entity.touchingRight = false;
+    entity.surfaceType = "air";
 
     if (entity.vx !== 0) {
       const nextX = entity.x + entity.vx * dt;
@@ -173,6 +191,11 @@ export class Level {
             }
             entity.onGround = true;
             entity.onPlatform = isPlatform;
+            entity.surfaceType = this.isWetTile(tile)
+              ? "wet"
+              : isPlatform
+                ? "platform"
+                : "ground";
           } else {
             entity.y = (ty + 1) * this.tileSize;
           }
@@ -226,6 +249,14 @@ export class Level {
           ctx.fillRect(x, y, this.tileSize, this.tileSize);
           ctx.fillStyle = "#ff9d9d";
           ctx.fillRect(x + 2, y + 2, this.tileSize - 4, 4);
+        } else if (tile === 4) {
+          ctx.fillStyle = "#2f4858";
+          ctx.fillRect(x, y, this.tileSize, this.tileSize);
+          ctx.fillStyle = "#5d91a8";
+          ctx.fillRect(x, y, this.tileSize, 3);
+          ctx.fillStyle = "rgba(189, 231, 255, 0.45)";
+          ctx.fillRect(x + 2, y + 4, this.tileSize - 6, 2);
+          ctx.fillRect(x + 5, y + 9, this.tileSize - 8, 2);
         }
       }
     }
@@ -287,4 +318,30 @@ function resolveSpawn(spawn, tileSize) {
   }
   const point = resolvePoint(spawn, tileSize, false);
   return { ...spawn, x: point.x, y: point.y };
+}
+
+function resolveBarrier(barrier, tileSize) {
+  const rect = resolveRect(barrier, tileSize);
+  const hp = barrier.hp || 3;
+  return {
+    ...barrier,
+    ...rect,
+    hp,
+    maxHp: hp,
+    broken: false,
+    flashTimer: 0,
+    requiresPellet: barrier.requiresPellet || "Red",
+    hint: barrier.hint || "Red pellets break police tape",
+  };
+}
+
+function resolvePickup(pickup, tileSize) {
+  const point = resolvePoint(pickup, tileSize, true);
+  return {
+    ...pickup,
+    type: pickup.type || pickup.kind || "health",
+    x: point.x,
+    y: point.y - tileSize * 0.35,
+    collected: false,
+  };
 }

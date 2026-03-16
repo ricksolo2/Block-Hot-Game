@@ -1,5 +1,5 @@
-import { CONFIG, PELLETS } from "./constants.js";
-import { clamp } from "./utils.js";
+import { CONFIG, PELLETS } from "./constants.js?v=6";
+import { clamp } from "./utils.js?v=5";
 
 export function drawHud(ctx, game) {
   ctx.save();
@@ -42,6 +42,7 @@ export function drawHud(ctx, game) {
   drawHeat(ctx, game);
   drawCombo(ctx, game);
   drawCoinScore(ctx, game);
+  drawObjectives(ctx, game);
   drawAudioStatus(ctx, game);
   drawWeapon(ctx, game);
   drawControlsBox(ctx);
@@ -147,6 +148,15 @@ function drawCoinScore(ctx, game) {
   );
 }
 
+function drawObjectives(ctx, game) {
+  const requiredSwatKills = game.level?.requiredSwatKills || 0;
+  if (!requiredSwatKills) return;
+
+  const text = `SWAT: ${game.swatKills}/${requiredSwatKills}`;
+  const width = ctx.measureText(text).width;
+  drawText(ctx, text, CONFIG.width - width - 8, 28, "#8ec8ff");
+}
+
 function drawAudioStatus(ctx, game) {
   const state = game.audioState;
   if (!state) return;
@@ -169,12 +179,16 @@ function drawAudioStatus(ctx, game) {
 
 function drawWeapon(ctx, game) {
   const pellet = PELLETS[game.player.pelletIndex];
+  const tripleText =
+    game.player.tripleShotTimer > 0
+      ? `  Triple: ${Math.ceil(game.player.tripleShotTimer)}s`
+      : "";
   const ammoText =
     game.player.reloadTimer > 0
       ? "Reloading"
       : `${game.player.ammo}/${game.player.maxAmmo}`;
   const nameText = `${pellet.name} Pellets`;
-  const ammoLine = `Ammo: ${ammoText}`;
+  const ammoLine = `Ammo: ${ammoText}${tripleText}`;
   const x = 8;
   const y = CONFIG.height - 22;
 
@@ -182,7 +196,55 @@ function drawWeapon(ctx, game) {
   drawText(ctx, ammoLine, x, y + 10, "#e6e6e6");
 }
 
-function drawHints() {}
+function drawHints(ctx, game) {
+  const barrier = game.getNearbyBarrier ? game.getNearbyBarrier() : null;
+  if (barrier) {
+    const text = barrier.hint || "Red pellets break police tape";
+    const w = ctx.measureText(text).width;
+    drawText(
+      ctx,
+      text,
+      (CONFIG.width - w) / 2,
+      CONFIG.height - 34,
+      "#ffe277"
+    );
+    return;
+  }
+
+  if (game.player.onGround && game.player.surfaceType === "wet") {
+    const text = "Wet ground is slippery";
+    const w = ctx.measureText(text).width;
+    drawText(
+      ctx,
+      text,
+      (CONFIG.width - w) / 2,
+      CONFIG.height - 34,
+      "#8ed6ff"
+    );
+    return;
+  }
+
+  const shortage = game.getExitCoinShortage ? game.getExitCoinShortage() : 0;
+  const swatShortage = game.getExitSwatShortage ? game.getExitSwatShortage() : 0;
+  if (shortage > 0 || swatShortage > 0) {
+    const needs = [];
+    if (shortage > 0) {
+      needs.push(`${shortage} more coin${shortage === 1 ? "" : "s"}`);
+    }
+    if (swatShortage > 0) {
+      needs.push(`${swatShortage} more SWAT takedown${swatShortage === 1 ? "" : "s"}`);
+    }
+    const text = `Need ${needs.join(" and ")} to exit`;
+    const w = ctx.measureText(text).width;
+    drawText(
+      ctx,
+      text,
+      (CONFIG.width - w) / 2,
+      CONFIG.height - 34,
+      "#ffd08a"
+    );
+  }
+}
 
 function drawBustPrompt(ctx, game) {
   if (!game.bust.active) return;
@@ -235,6 +297,7 @@ function drawInstructions(ctx, game) {
   ctx.font = "9px monospace";
   const requiredCoins =
     game.level?.minCoinsToExit ?? CONFIG.minCoinsToExit;
+  const requiredSwatKills = game.level?.requiredSwatKills || 0;
   drawText(ctx, "Move: WASD / Arrows", 8, 32, "#e6e6e6");
   drawText(ctx, "Jump: Z or Space", 8, 44, "#e6e6e6");
   drawText(ctx, "Shoot: X   Dash: C   Reload: R", 8, 56, "#e6e6e6");
@@ -243,13 +306,17 @@ function drawInstructions(ctx, game) {
   drawText(ctx, "Goal: Reach the exit, earn coins, manage Heat.", 8, 96, "#e6e6e6");
   drawText(
     ctx,
-    `Need at least ${requiredCoins} coins to exit.`,
+    requiredSwatKills > 0
+      ? `Need ${requiredCoins} coins and ${requiredSwatKills} SWAT takedowns to exit.`
+      : `Need at least ${requiredCoins} coins to exit.`,
     8,
     108,
     "#e6e6e6"
   );
-  drawText(ctx, "Cops raise Heat; safehouses cool it down.", 8, 120, "#e6e6e6");
-  drawText(ctx, "Press Enter to Start or Esc to go Back", 8, 140, "#e6e6e6");
+  drawText(ctx, "Gun pickup grants temporary triple-shot spread.", 8, 120, "#e6e6e6");
+  drawText(ctx, "Health pickup repairs missing hearts.", 8, 132, "#e6e6e6");
+  drawText(ctx, "Cops raise Heat; safehouses cool it down.", 8, 144, "#e6e6e6");
+  drawText(ctx, "Press Enter to Start or Esc to go Back", 8, 156, "#e6e6e6");
 }
 
 function drawComplete(ctx, game) {
@@ -267,18 +334,33 @@ function drawComplete(ctx, game) {
 
   ctx.font = "10px monospace";
   const coinsText = `Coins: ${stats.coins}`;
+  const swatText =
+    typeof stats.requiredSwatKills === "number" && stats.requiredSwatKills > 0
+      ? `SWAT: ${stats.swatKills}/${stats.requiredSwatKills}`
+      : "";
   const scoreText = `Score: ${stats.score}`;
   const coinsW = ctx.measureText(coinsText).width;
+  const swatW = swatText ? ctx.measureText(swatText).width : 0;
   const scoreW = ctx.measureText(scoreText).width;
   drawText(ctx, coinsText, (CONFIG.width - coinsW) / 2, CONFIG.height / 2 - 4, "#f7f1cf");
-  drawText(ctx, scoreText, (CONFIG.width - scoreW) / 2, CONFIG.height / 2 + 8, "#f7f1cf");
+  if (swatText) {
+    drawText(ctx, swatText, (CONFIG.width - swatW) / 2, CONFIG.height / 2 + 8, "#8ec8ff");
+  }
+  drawText(
+    ctx,
+    scoreText,
+    (CONFIG.width - scoreW) / 2,
+    CONFIG.height / 2 + (swatText ? 20 : 8),
+    "#f7f1cf"
+  );
 
   const nextText = game.hasNextLevel() ? "Enter -> Next Level" : "Enter: Restart";
   const homeText = "Esc: Home";
   const nextW = ctx.measureText(nextText).width;
   const homeW = ctx.measureText(homeText).width;
-  drawText(ctx, nextText, (CONFIG.width - nextW) / 2, CONFIG.height / 2 + 24, "#e6e6e6");
-  drawText(ctx, homeText, (CONFIG.width - homeW) / 2, CONFIG.height / 2 + 36, "#e6e6e6");
+  const controlsY = CONFIG.height / 2 + (swatText ? 36 : 24);
+  drawText(ctx, nextText, (CONFIG.width - nextW) / 2, controlsY, "#e6e6e6");
+  drawText(ctx, homeText, (CONFIG.width - homeW) / 2, controlsY + 12, "#e6e6e6");
 }
 
 function drawGameOver(ctx) {
@@ -350,7 +432,7 @@ function drawControlsBox(ctx) {
 
 function drawHudPanels(ctx) {
   ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-  ctx.fillRect(0, 0, CONFIG.width, 30);
+  ctx.fillRect(0, 0, CONFIG.width, 34);
   ctx.fillRect(0, CONFIG.height - 18, CONFIG.width, 18);
 }
 

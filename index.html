@@ -11,6 +11,29 @@
       <canvas id="game" width="640" height="360" aria-label="BlockHot game canvas" role="img"></canvas>
       <div id="loading">Loading...</div>
     </main>
-    <script type="module" src="src/main.js?v=3"></script>
+    <script type="module">
+      const loading = document.getElementById("loading");
+
+      const showBootError = (error) => {
+        const detail =
+          error && typeof error === "object"
+            ? error.message || error.reason?.message || String(error.reason || error)
+            : String(error);
+        loading.textContent = `Failed to load game: ${detail}`;
+      };
+
+      window.addEventListener("error", (event) => {
+        showBootError(event.error || event.message);
+      });
+
+      window.addEventListener("unhandledrejection", (event) => {
+        showBootError(event.reason || "Unhandled promise rejection");
+      });
+
+      import("./src/main.js?v=12").catch((error) => {
+        console.error("Module import failed.", error);
+        showBootError(error);
+      });
+    </script>
   </body>
 </html>

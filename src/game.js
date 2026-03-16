@@ -1,7 +1,25 @@
-import { CONFIG, PELLETS } from "./constants.js";
-import { clamp, rectsOverlap, randItem } from "./utils.js";
-import { Player, Enemy, Projectile, EnemyProjectile } from "./entities.js";
-import { drawHud } from "./ui.js";
+import {
+  ENTITY_STATES,
+  getAnimationClip,
+  getAnimationFrame,
+  stepAnimation,
+} from "./animation.js?v=4";
+import { CONFIG, PELLETS } from "./constants.js?v=6";
+import {
+  clamp,
+  rectsOverlap,
+  randItem,
+  HitStop,
+  FloatingText,
+} from "./utils.js?v=5";
+import {
+  Player,
+  Enemy,
+  Projectile,
+  EnemyProjectile,
+} from "./entities.js?v=8";
+import { ProceduralAnimator } from "./proceduralAnimator.js?v=4";
+import { drawHud } from "./ui.js?v=6";
 
 export class Game {
   constructor(canvas, ctx, input, level, options = {}) {
@@ -18,10 +36,11 @@ export class Game {
     this.camera = { x: 0, y: 0, w: CONFIG.width, h: CONFIG.height };
     this.background = levelData.background || options.background || null;
     this.menuImage = options.menuImage || null;
-    this.sprites = options.sprites || null;
+    this.playerAnimations = options.playerAnimations || null;
     this.spriteScale = options.spriteScale || 1;
-    this.enemySprites = options.enemySprites || null;
+    this.enemyAnimations = options.enemyAnimations || null;
     this.enemyScales = options.enemyScales || null;
+    this.powerUpSprites = options.powerUpSprites || null;
     this.tileSprites = options.tileSprites || null;
     this.sfx = options.sfx || null;
     this.time = 0;
@@ -29,6 +48,11 @@ export class Game {
     this.shakeDuration = 0;
     this.shakeStrength = 0;
     this.particles = [];
+    this.hitStop = new HitStop();
+    this.floatingText = new FloatingText();
+    this.animator = new ProceduralAnimator();
+    this.playerVisualState = "idle";
+    this.playerDustTimer = 0;
 
     this.player = new Player(level.playerSpawn.x, level.playerSpawn.y);
     this.checkpoint = { x: level.playerSpawn.x, y: level.playerSpawn.y };
@@ -43,6 +67,7 @@ export class Game {
     this.comboTimer = 0;
     this.score = 0;
     this.coinCount = 0;
+    this.swatKills = 0;
     this.safehouseCooldown = 0;
     this.levelComplete = false;
     this.completeStats = null;
@@ -224,16 +249,35 @@ export class Game {
       return;
     }
 
+    if (this.hitStop.update(dt)) {
+      this.input.clearPressed();
+      return;
+    }
+
     if (this.bust.active) {
       this.updateBust(dt);
+      this.player.setState(ENTITY_STATES.STUNNED);
     } else {
+      this.storePreviousPosition(this.player);
       this.player.update(dt, this.input, this.level, this);
+      this.resolveBarrierCollisions(this.player);
+    }
+    stepAnimation(this.player, dt, this.playerAnimations);
+    this.updatePlayerPresentation(dt);
+
+    for (const barrier of this.level.barriers || []) {
+      barrier.flashTimer = Math.max(0, barrier.flashTimer - dt);
     }
 
     for (const enemy of this.enemies) {
       enemy.flashTimer = Math.max(0, enemy.flashTimer - dt);
+      this.storePreviousPosition(enemy);
       enemy.update(dt, this, this.level);
+      this.resolveBarrierCollisions(enemy);
+      stepAnimation(enemy, dt, this.getEnemyAnimationSet(enemy));
+      this.updateEnemyPresentation(enemy, dt);
     }
+    this.enemies = this.enemies.filter((enemy) => !enemy.remove);
 
     for (const projectile of this.projectiles) {
       projectile.update(dt, this.level);
@@ -247,12 +291,14 @@ export class Game {
       (projectile) => !projectile.dead
     );
     this.updateParticles(dt);
+    this.floatingText.update(dt);
 
     this.handleProjectileHits();
     this.handlePlayerHazards();
     this.handlePlayerEnemyCollision();
     this.handleEnemyProjectiles();
     this.handleCoins();
+    this.handlePickups();
     this.handleSafehouses();
     this.handleExit();
     this.updateEnemySpawns(dt);
@@ -294,18 +340,164 @@ export class Game {
     this.camera.y += (targetY - this.camera.y) * CONFIG.cameraLerp;
   }
 
+  updatePlayerPresentation(dt) {
+    this.animator.update(dt);
+    this.playerDustTimer = Math.max(0, this.playerDustTimer - dt);
+    const previousVisualState = this.playerVisualState;
+    this.playerVisualState = this.animator.getState(this.player);
+
+    if (
+      this.playerVisualState === "run" &&
+      this.player.onGround &&
+      this.playerDustTimer <= 0
+    ) {
+      this.playerDustTimer = 0.05;
+      this.spawnParticles(
+        this.player.x + this.player.w / 2,
+        this.player.y + this.player.h,
+        {
+          color: "#a89070",
+          count: 2,
+          minSpeed: 10,
+          maxSpeed: 32,
+          life: 0.18,
+          size: 1.5,
+        }
+      );
+    }
+
+    if (this.playerVisualState === "land" && previousVisualState !== "land") {
+      this.spawnParticles(
+        this.player.x + this.player.w / 2,
+        this.player.y + this.player.h,
+        {
+          color: "#a89070",
+          count: 6,
+          minSpeed: 20,
+          maxSpeed: 55,
+          life: 0.16,
+          size: 2,
+        }
+      );
+    }
+  }
+
+  resetPlayerPresentation() {
+    this.playerVisualState = "idle";
+    this.playerDustTimer = 0;
+  }
+
+  updateEnemyPresentation(enemy, dt) {
+    enemy.dustTimer = Math.max(0, (enemy.dustTimer ?? 0) - dt);
+    if (enemy.type !== "ninja") return;
+    if (!enemy.onGround || Math.abs(enemy.vx) <= 35 || enemy.dustTimer > 0) return;
+
+    enemy.dustTimer = 0.08;
+    this.spawnParticles(enemy.x + enemy.w / 2, enemy.y + enemy.h, {
+      color: "#8f836f",
+      count: 1,
+      minSpeed: 8,
+      maxSpeed: 24,
+      life: 0.14,
+      size: 1.2,
+    });
+  }
+
+  storePreviousPosition(entity) {
+    entity.prevX = entity.x;
+    entity.prevY = entity.y;
+  }
+
+  resolveBarrierCollisions(entity) {
+    const barriers = this.level.barriers || [];
+    for (const barrier of barriers) {
+      if (barrier.broken || !rectsOverlap(entity, barrier)) continue;
+
+      const prevX = entity.prevX ?? entity.x;
+      const prevY = entity.prevY ?? entity.y;
+      const prevRight = prevX + entity.w;
+      const prevBottom = prevY + entity.h;
+      const prevLeft = prevX;
+      const prevTop = prevY;
+
+      if (prevBottom <= barrier.y) {
+        entity.y = barrier.y - entity.h;
+        entity.vy = 0;
+        entity.onGround = true;
+        continue;
+      }
+      if (prevTop >= barrier.y + barrier.h) {
+        entity.y = barrier.y + barrier.h;
+        entity.vy = Math.max(0, entity.vy);
+        continue;
+      }
+      if (prevRight <= barrier.x) {
+        entity.x = barrier.x - entity.w;
+        entity.vx = Math.min(0, entity.vx);
+        entity.touchingRight = true;
+        continue;
+      }
+      if (prevLeft >= barrier.x + barrier.w) {
+        entity.x = barrier.x + barrier.w;
+        entity.vx = Math.max(0, entity.vx);
+        entity.touchingLeft = true;
+        continue;
+      }
+
+      const overlapLeft = entity.x + entity.w - barrier.x;
+      const overlapRight = barrier.x + barrier.w - entity.x;
+      const overlapTop = entity.y + entity.h - barrier.y;
+      const overlapBottom = barrier.y + barrier.h - entity.y;
+      const minOverlap = Math.min(
+        overlapLeft,
+        overlapRight,
+        overlapTop,
+        overlapBottom
+      );
+
+      if (minOverlap === overlapTop) {
+        entity.y = barrier.y - entity.h;
+        entity.vy = 0;
+        entity.onGround = true;
+      } else if (minOverlap === overlapBottom) {
+        entity.y = barrier.y + barrier.h;
+        entity.vy = Math.max(0, entity.vy);
+      } else if (minOverlap === overlapLeft) {
+        entity.x = barrier.x - entity.w;
+        entity.vx = Math.min(0, entity.vx);
+        entity.touchingRight = true;
+      } else {
+        entity.x = barrier.x + barrier.w;
+        entity.vx = Math.max(0, entity.vx);
+        entity.touchingLeft = true;
+      }
+    }
+  }
+
   spawnProjectile(player) {
     const pellet = PELLETS[player.pelletIndex];
     const dir = player.facing;
     const x = dir > 0 ? player.x + player.w : player.x - 4;
     const y = player.y + player.h * 0.5;
-    this.projectiles.push(
-      new Projectile(x, y, pellet.speed * dir, 0, pellet)
-    );
+    const shotPattern =
+      player.tripleShotTimer > 0
+        ? [
+            { offsetY: -3, vy: -80 },
+            { offsetY: 0, vy: 0 },
+            { offsetY: 3, vy: 80 },
+          ]
+        : [{ offsetY: 0, vy: 0 }];
+
+    for (const shot of shotPattern) {
+      this.projectiles.push(
+        new Projectile(x, y + shot.offsetY, pellet.speed * dir, shot.vy, pellet)
+      );
+    }
+
     this.addShake(1.2, 0.08);
     this.spawnParticles(x + dir * 4, y, {
       color: pellet.color,
-      count: 6,
+      count: player.tripleShotTimer > 0 ? 10 : 6,
       minSpeed: 30,
       maxSpeed: 90,
       life: 0.25,
@@ -320,28 +512,68 @@ export class Game {
     const x = enemy.x + enemy.w / 2 + dir * (enemy.w / 2 + 2);
     const y = enemy.y + enemy.h * 0.4;
     this.enemyProjectiles.push(new EnemyProjectile(x, y, speed * dir, 0));
+    this.spawnParticles(x + dir * 3, y, {
+      color: "#ffb08a",
+      count: 4,
+      minSpeed: 24,
+      maxSpeed: 70,
+      life: 0.18,
+      size: 1.2,
+    });
+    if (this.sfx && this.sfx.gun) {
+      this.sfx.gun.play();
+    }
   }
 
   handleProjectileHits() {
     for (const projectile of this.projectiles) {
       if (projectile.dead) continue;
+      const barrier = this.findBarrierHit(projectile);
+      if (barrier) {
+        this.applyBarrierHit(barrier, projectile);
+        continue;
+      }
       for (const enemy of this.enemies) {
+        if (enemy.remove || enemy.state === ENTITY_STATES.DEAD) continue;
         if (rectsOverlap(projectile, enemy)) {
           this.applyProjectileHit(enemy, projectile);
           if (projectile.dead) break;
         }
       }
     }
+  }
 
-    this.enemies = this.enemies.filter((enemy) => enemy.hp > 0);
+  findBarrierHit(projectile) {
+    for (const barrier of this.level.barriers || []) {
+      if (!barrier.broken && rectsOverlap(projectile, barrier)) {
+        return barrier;
+      }
+    }
+    return null;
   }
 
   applyProjectileHit(enemy, projectile) {
+    if (enemy.remove || enemy.state === ENTITY_STATES.DEAD) {
+      projectile.dead = true;
+      return;
+    }
+
     const pellet = projectile.pellet;
     enemy.hp -= pellet.damage;
     enemy.stunTimer = pellet.stun;
     enemy.vx += Math.sign(projectile.vx) * pellet.push;
     enemy.flashTimer = 0.035;
+    this.hitStop.trigger(
+      enemy.hp <= 0 ? CONFIG.hitStopDuration : CONFIG.hitStopDuration * 0.55
+    );
+    this.floatingText.add(
+      `-${pellet.damage}`,
+      enemy.x + enemy.w / 2,
+      enemy.y - 6,
+      pellet.color,
+      9,
+      0.55
+    );
     this.spawnParticles(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, {
       color: "#ffffff",
       count: 6,
@@ -355,6 +587,14 @@ export class Game {
       if (target) {
         target.hp -= 1;
         target.stunTimer = pellet.stun;
+        this.floatingText.add(
+          "CHAIN!",
+          target.x + target.w / 2,
+          target.y - 10,
+          pellet.color,
+          8,
+          0.6
+        );
         if (target.hp <= 0) {
           this.neutralizeEnemy(target);
         }
@@ -372,12 +612,64 @@ export class Game {
     }
   }
 
+  applyBarrierHit(barrier, projectile) {
+    barrier.flashTimer = 0.08;
+    this.addShake(0.8, 0.06);
+    this.spawnParticles(projectile.x, projectile.y, {
+      color: "#ffe26a",
+      count: 5,
+      minSpeed: 35,
+      maxSpeed: 95,
+      life: 0.18,
+    });
+
+    const required = (barrier.requiresPellet || "Red").toLowerCase();
+    const pelletName = (projectile.pellet.name || "").toLowerCase();
+    if (pelletName === required) {
+      barrier.hp -= projectile.pellet.damage;
+      if (barrier.hp <= 0) {
+        barrier.hp = 0;
+        barrier.broken = true;
+        this.hitStop.trigger(CONFIG.hitStopDuration);
+        this.floatingText.add(
+          "BREAK!",
+          barrier.x + barrier.w / 2,
+          barrier.y - 8,
+          "#ffe277",
+          10,
+          0.7
+        );
+        this.addShake(2.4, 0.14);
+        this.spawnParticles(
+          barrier.x + barrier.w / 2,
+          barrier.y + barrier.h / 2,
+          {
+            color: "#ffdf5a",
+            count: 18,
+            minSpeed: 40,
+            maxSpeed: 170,
+            life: 0.35,
+          }
+        );
+      }
+    }
+
+    projectile.dead = true;
+  }
+
   findChainTarget(origin, radius) {
     let best = null;
     let bestDist = Infinity;
 
     for (const enemy of this.enemies) {
-      if (enemy === origin || enemy.hp <= 0) continue;
+      if (
+        enemy === origin ||
+        enemy.hp <= 0 ||
+        enemy.remove ||
+        enemy.state === ENTITY_STATES.DEAD
+      ) {
+        continue;
+      }
       const dx = enemy.x - origin.x;
       const dy = enemy.y - origin.y;
       const dist = Math.hypot(dx, dy);
@@ -391,13 +683,27 @@ export class Game {
   }
 
   neutralizeEnemy(enemy) {
+    if (!enemy || enemy.state === ENTITY_STATES.DEAD) return;
+
     if (enemy.type === "cop" || enemy.type === "swat") {
       this.addHeatStars(1);
     }
+    if (enemy.type === "swat") {
+      this.swatKills += 1;
+    }
 
     this.addCombo();
-    this.score += 100 * this.combo;
-    enemy.hp = 0;
+    const points = 100 * this.combo;
+    this.score += points;
+    this.floatingText.add(
+      `+${points}`,
+      enemy.x + enemy.w / 2,
+      enemy.y - 14,
+      "#f7f1cf",
+      10,
+      0.9
+    );
+    enemy.markDead();
   }
 
   handlePlayerHazards() {
@@ -414,26 +720,17 @@ export class Game {
   handlePlayerEnemyCollision() {
     if (this.bust.active || this.player.invuln > 0) return;
     for (const enemy of this.enemies) {
+      if (enemy.remove || enemy.state === ENTITY_STATES.DEAD) continue;
       if (rectsOverlap(this.player, enemy)) {
         if (enemy.type === "cop") {
           this.startBust(enemy);
         } else {
           const dir = this.player.x < enemy.x ? -1 : 1;
-          if (
-            (enemy.type === "snake" || enemy.type === "bulldog") &&
-            this.sfx &&
-            this.sfx.snake
-          ) {
+          if (enemy.type === "snake" && this.sfx && this.sfx.snake) {
             this.sfx.snake.play();
           }
-          if (
-            (enemy.type === "ninja" ||
-              enemy.type === "redNinja" ||
-              enemy.type === "blueNinja") &&
-            this.sfx &&
-            this.sfx.ninja
-          ) {
-            this.sfx.ninja.play();
+          if (enemy.type === "bulldog" && this.sfx && this.sfx.bulldog) {
+            this.sfx.bulldog.play();
           }
           this.damagePlayer(1, dir);
         }
@@ -448,6 +745,7 @@ export class Game {
       if (projectile.dead) continue;
       if (rectsOverlap(this.player, projectile)) {
         const dir = projectile.vx < 0 ? -1 : 1;
+        this.hitStop.trigger(CONFIG.hitStopDuration * 0.65);
         this.damagePlayer(projectile.damage, dir);
         projectile.dead = true;
         break;
@@ -526,6 +824,68 @@ export class Game {
     }
   }
 
+  handlePickups() {
+    for (const pickup of this.level.pickups || []) {
+      if (pickup.collected) continue;
+
+      const dx = this.player.x + this.player.w / 2 - pickup.x;
+      const dy = this.player.y + this.player.h / 2 - pickup.y;
+      if (Math.hypot(dx, dy) > 18) continue;
+
+      if (pickup.type === "health") {
+        if (this.player.hp >= this.player.maxHp) {
+          continue;
+        }
+        pickup.collected = true;
+        this.player.hp = Math.min(
+          this.player.maxHp,
+          this.player.hp + CONFIG.healthPickupHeal
+        );
+        this.floatingText.add(
+          `+${CONFIG.healthPickupHeal} HP`,
+          pickup.x,
+          pickup.y - 10,
+          "#86ff8a",
+          10,
+          0.8
+        );
+        this.spawnParticles(pickup.x, pickup.y, {
+          color: "#86ff8a",
+          count: 10,
+          minSpeed: 16,
+          maxSpeed: 60,
+          life: 0.28,
+          size: 1.8,
+        });
+        continue;
+      }
+
+      if (pickup.type === "gun") {
+        pickup.collected = true;
+        this.player.tripleShotTimer = Math.max(
+          this.player.tripleShotTimer,
+          CONFIG.tripleShotDuration
+        );
+        this.floatingText.add(
+          "TRIPLE SHOT",
+          pickup.x,
+          pickup.y - 10,
+          "#d184ff",
+          10,
+          0.9
+        );
+        this.spawnParticles(pickup.x, pickup.y, {
+          color: "#d184ff",
+          count: 12,
+          minSpeed: 18,
+          maxSpeed: 72,
+          life: 0.32,
+          size: 1.8,
+        });
+      }
+    }
+  }
+
   handleSafehouses() {
     if (this.safehouseCooldown > 0) return;
     for (const safehouse of this.level.safehouses) {
@@ -535,6 +895,14 @@ export class Game {
         this.checkpoint.y = safehouse.y;
         this.player.hp = this.player.maxHp;
         this.reduceHeatStars(1);
+        this.floatingText.add(
+          "SAFEHOUSE",
+          safehouse.x + safehouse.w / 2,
+          safehouse.y - 10,
+          "#70f4ff",
+          10,
+          0.8
+        );
         break;
       }
     }
@@ -543,14 +911,18 @@ export class Game {
   handleExit() {
     const requiredCoins =
       this.level.minCoinsToExit ?? CONFIG.minCoinsToExit;
+    const requiredSwatKills = this.level.requiredSwatKills || 0;
     if (
       rectsOverlap(this.player, this.level.exit) &&
-      this.coinCount >= requiredCoins
+      this.coinCount >= requiredCoins &&
+      this.swatKills >= requiredSwatKills
     ) {
       this.levelComplete = true;
       this.state = "complete";
       this.completeStats = {
         coins: this.coinCount,
+        swatKills: this.swatKills,
+        requiredSwatKills,
         score: this.score,
         level: this.levelIndex + 1,
       };
@@ -567,13 +939,20 @@ export class Game {
 
   updateEnemySpawns(dt) {
     const activeCops = this.enemies.filter(
-      (enemy) => enemy.type === "cop" || enemy.type === "swat"
+      (enemy) =>
+        !enemy.remove &&
+        enemy.state !== ENTITY_STATES.DEAD &&
+        (enemy.type === "cop" || enemy.type === "swat")
     ).length;
     const activeNinjas = this.enemies.filter(
       (enemy) =>
-        enemy.type === "ninja" ||
-        enemy.type === "redNinja" ||
-        enemy.type === "blueNinja"
+        !enemy.remove &&
+        enemy.state !== ENTITY_STATES.DEAD &&
+        (
+          enemy.type === "ninja" ||
+          enemy.type === "redNinja" ||
+          enemy.type === "blueNinja"
+        )
     ).length;
 
     const targetCops = clamp(1 + this.heatStars, 1, 5);
@@ -643,8 +1022,19 @@ export class Game {
   damagePlayer(amount, knockbackDir) {
     this.player.hp -= amount;
     this.player.invuln = 1.0;
+    this.player.hurtTimer = 0.36;
+    this.player.hitAnimTimer = 0.15;
     this.player.vx = 160 * knockbackDir;
     this.player.vy = -200;
+    this.hitStop.trigger(CONFIG.hitStopDuration);
+    this.floatingText.add(
+      `-${amount}`,
+      this.player.x + this.player.w / 2,
+      this.player.y - 8,
+      "#ff9f9f",
+      10,
+      0.6
+    );
     this.combo = 1;
     this.comboTimer = 0;
     this.addShake(2, 0.12);
@@ -670,12 +1060,16 @@ export class Game {
     this.player.y = this.checkpoint.y;
     this.player.vx = 0;
     this.player.vy = 0;
+    this.player.hurtTimer = 0;
+    this.player.hitAnimTimer = 0;
+    this.player.landTimer = 0;
     if (heal) {
       this.player.hp = this.player.maxHp;
     }
     this.player.invuln = 1.0;
     this.player.ammo = this.player.maxAmmo;
     this.player.reloadTimer = 0;
+    this.resetPlayerPresentation();
     if (reduceHeat) {
       this.reduceHeatStars(1);
     }
@@ -686,9 +1080,13 @@ export class Game {
     this.player.y = this.level.playerSpawn.y;
     this.player.vx = 0;
     this.player.vy = 0;
+    this.player.hurtTimer = 0;
+    this.player.hitAnimTimer = 0;
+    this.player.landTimer = 0;
     this.player.invuln = 1.0;
     this.player.ammo = this.player.maxAmmo;
     this.player.reloadTimer = 0;
+    this.resetPlayerPresentation();
     if (reduceHeat) {
       this.reduceHeatStars(1);
     }
@@ -734,6 +1132,7 @@ export class Game {
     this.completeStats = null;
     this.score = 0;
     this.coinCount = 0;
+    this.swatKills = 0;
     this.combo = 1;
     this.comboTimer = 0;
     this.heatPoints = 0;
@@ -747,12 +1146,23 @@ export class Game {
     this.projectiles = [];
     this.enemyProjectiles = [];
     this.particles = [];
+    this.hitStop.reset();
+    this.floatingText.clear();
 
     for (const coin of this.level.coins) {
       coin.collected = false;
     }
+    for (const pickup of this.level.pickups || []) {
+      pickup.collected = false;
+    }
+    for (const barrier of this.level.barriers || []) {
+      barrier.hp = barrier.maxHp;
+      barrier.broken = false;
+      barrier.flashTimer = 0;
+    }
 
     this.player.reset(this.level.playerSpawn.x, this.level.playerSpawn.y);
+    this.resetPlayerPresentation();
     this.checkpoint.x = this.level.playerSpawn.x;
     this.checkpoint.y = this.level.playerSpawn.y;
     this.spawnInitialEnemies();
@@ -788,6 +1198,8 @@ export class Game {
     this.player.vx = 0;
     this.player.vy = 0;
     this.player.invuln = 0;
+    this.player.hurtTimer = 0;
+    this.player.setState(ENTITY_STATES.DEAD);
     this.stopMusic();
     if (this.sfx && this.sfx.death) {
       this.sfx.death.play();
@@ -796,6 +1208,43 @@ export class Game {
 
   isPlayerInGrass() {
     return this.level.isInGrass(this.player);
+  }
+
+  getNearbyBarrier() {
+    for (const barrier of this.level.barriers || []) {
+      if (barrier.broken) continue;
+      const dx =
+        barrier.x + barrier.w / 2 - (this.player.x + this.player.w / 2);
+      const dy =
+        barrier.y + barrier.h / 2 - (this.player.y + this.player.h / 2);
+      if (Math.abs(dx) < 72 && Math.abs(dy) < 56) {
+        return barrier;
+      }
+    }
+    return null;
+  }
+
+  getExitCoinShortage() {
+    const required = this.level.minCoinsToExit ?? CONFIG.minCoinsToExit;
+    if (!rectsOverlap(this.player, this.level.exit) || this.coinCount >= required) {
+      return 0;
+    }
+    return required - this.coinCount;
+  }
+
+  getExitSwatShortage() {
+    const required = this.level.requiredSwatKills || 0;
+    if (!required) return 0;
+    if (!rectsOverlap(this.player, this.level.exit) || this.swatKills >= required) {
+      return 0;
+    }
+    return required - this.swatKills;
+  }
+
+  isExitReady() {
+    const requiredCoins = this.level.minCoinsToExit ?? CONFIG.minCoinsToExit;
+    const requiredSwatKills = this.level.requiredSwatKills || 0;
+    return this.coinCount >= requiredCoins && this.swatKills >= requiredSwatKills;
   }
 
   render() {
@@ -811,7 +1260,9 @@ export class Game {
     ctx.translate(-this.camera.x, -this.camera.y);
 
     this.level.draw(ctx, this.camera, this.tileSprites);
+    this.drawBarriers(ctx);
     this.drawCoins(ctx);
+    this.drawPickups(ctx);
     this.drawSafehouses(ctx);
     this.drawExit(ctx);
     this.drawProjectiles(ctx);
@@ -819,6 +1270,7 @@ export class Game {
     this.drawParticles(ctx);
     this.drawEnemies(ctx);
     this.drawPlayer(ctx);
+    this.floatingText.draw(ctx);
 
     ctx.restore();
     ctx.restore();
@@ -887,10 +1339,114 @@ export class Game {
     }
   }
 
+  drawPickups(ctx) {
+    for (const pickup of this.level.pickups || []) {
+      if (pickup.collected) continue;
+      const sprite = this.powerUpSprites?.[pickup.type] || null;
+      const hover = Math.sin(this.time * 6 + pickup.x * 0.1) * 2.2;
+      const pulse = (Math.sin(this.time * 7 + pickup.x * 0.06) + 1) * 0.5;
+      const drawX = pickup.x;
+      const drawY = pickup.y + hover;
+      const glowColor = pickup.type === "gun" ? "#d184ff" : "#86ff8a";
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
+      ctx.beginPath();
+      ctx.ellipse(drawX, pickup.y + 10, 10 + pulse * 2, 3 + pulse, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = glowColor;
+      ctx.globalAlpha = 0.18 + pulse * 0.18;
+      ctx.beginPath();
+      ctx.arc(drawX, drawY, 11 + pulse * 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.28 + pulse * 0.14;
+      ctx.beginPath();
+      ctx.arc(drawX, drawY, 7 + pulse * 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      if (sprite) {
+        const drawH = 24;
+        const drawW = Math.max(10, Math.round((sprite.width / sprite.height) * drawH));
+        ctx.drawImage(
+          sprite,
+          Math.round(drawX - drawW / 2),
+          Math.round(drawY - drawH / 2),
+          drawW,
+          drawH
+        );
+      } else {
+        ctx.fillStyle = glowColor;
+        ctx.fillRect(drawX - 6, drawY - 10, 12, 20);
+      }
+    }
+  }
+
+  drawBarriers(ctx) {
+    for (const barrier of this.level.barriers || []) {
+      if (barrier.broken) continue;
+
+      const x = barrier.x;
+      const y = barrier.y;
+      const w = barrier.w;
+      const h = barrier.h;
+      const flashAlpha = barrier.flashTimer > 0 ? 0.35 : 0;
+      const damageRatio = barrier.maxHp > 0 ? barrier.hp / barrier.maxHp : 1;
+      const tapeY = y + h * 0.3;
+      const postW = Math.max(6, Math.round(w * 0.08));
+      const baseH = Math.max(8, Math.round(h * 0.45));
+
+      ctx.fillStyle = "#4d101a";
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2, y + h - 2, w * 0.58, baseH * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#8d5a35";
+      ctx.fillRect(x + 6, y + 2, postW, h - 6);
+      ctx.fillRect(x + w - postW - 6, y + 2, postW, h - 6);
+
+      ctx.fillStyle = "#6f3d26";
+      ctx.fillRect(x + 8, y + 4, 2, h - 10);
+      ctx.fillRect(x + w - postW - 4, y + 4, 2, h - 10);
+
+      ctx.fillStyle = damageRatio < 0.5 ? "#f5d84d" : "#f0d02a";
+      ctx.fillRect(x + postW + 8, tapeY, w - postW * 2 - 16, 8);
+
+      ctx.fillStyle = "#161616";
+      const tapeStart = x + postW + 8;
+      const tapeWidth = w - postW * 2 - 16;
+      for (let stripe = -4; stripe < tapeWidth + 8; stripe += 18) {
+        ctx.beginPath();
+        ctx.moveTo(tapeStart + stripe, tapeY + 8);
+        ctx.lineTo(tapeStart + stripe + 8, tapeY + 8);
+        ctx.lineTo(tapeStart + stripe + 16, tapeY);
+        ctx.lineTo(tapeStart + stripe + 8, tapeY);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.font = "7px monospace";
+      ctx.fillStyle = "#111111";
+      const label = "POLICE";
+      const labelWidth = ctx.measureText(label).width;
+      const segmentCount = Math.max(1, Math.floor(tapeWidth / 42));
+      for (let i = 0; i < segmentCount; i += 1) {
+        const labelX = tapeStart + 8 + i * (tapeWidth / segmentCount);
+        ctx.fillText(label, labelX, tapeY + 1);
+      }
+
+      if (flashAlpha > 0) {
+        ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+        ctx.fillRect(x, y, w, h);
+      }
+    }
+  }
+
   drawExit(ctx) {
-    ctx.fillStyle = "#d94b4b";
+    const ready = this.isExitReady();
+    ctx.fillStyle = ready ? "#4bd97f" : "#d94b4b";
     ctx.fillRect(this.level.exit.x, this.level.exit.y, this.level.exit.w, this.level.exit.h);
-    ctx.strokeStyle = "#f7b2b2";
+    ctx.strokeStyle = ready ? "#c1ffd4" : "#f7b2b2";
     ctx.strokeRect(this.level.exit.x, this.level.exit.y, this.level.exit.w, this.level.exit.h);
   }
 
@@ -925,9 +1481,15 @@ export class Game {
 
   drawEnemies(ctx) {
     for (const enemy of this.enemies) {
-      const sprite = this.getEnemySprite(enemy);
-      if (sprite && sprite.image) {
-        this.drawEnemySprite(ctx, enemy, sprite, enemy.flashTimer > 0);
+      const presentation = this.getEnemyAnimationPresentation(enemy);
+      if (presentation && presentation.frame) {
+        this.drawEnemyFrame(
+          ctx,
+          enemy,
+          presentation.frame,
+          presentation.flip,
+          enemy.flashTimer > 0
+        );
         continue;
       }
 
@@ -969,144 +1531,225 @@ export class Game {
   }
 
   drawPlayer(ctx) {
-    const sprite = this.getPlayerSprite();
-    if (!sprite || !sprite.image) {
+    const visualState = this.playerVisualState || this.animator.getState(this.player);
+    const transform = this.animator.getTransform(this.player, visualState);
+    const flash = this.player.hurtTimer > 0 && Math.floor(this.time * 24) % 2 === 0;
+    const clip = getAnimationClip(this.player, this.playerAnimations);
+    const frame = getAnimationFrame(this.player, this.playerAnimations);
+    if (!frame || !frame.image) {
+      const centerX = this.player.x + this.player.w / 2 + (transform.offsetX || 0);
+      const centerY = this.player.y + this.player.h / 2 + (transform.offsetY || 0);
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(transform.rotation || 0);
+      ctx.scale(transform.scaleX || 1, transform.scaleY || 1);
       ctx.fillStyle = this.player.invuln > 0 ? "#9ef5a1" : "#5ad96b";
-      ctx.fillRect(this.player.x, this.player.y, this.player.w, this.player.h);
+      ctx.fillRect(-this.player.w / 2, -this.player.h / 2, this.player.w, this.player.h);
+      ctx.restore();
       return;
     }
 
     const scale = this.spriteScale || 1;
-    const drawW = sprite.image.width * scale;
-    const drawH = sprite.image.height * scale;
+    const drawW = frame.sw * scale;
+    const drawH = frame.sh * scale;
     const drawX = this.player.x + this.player.w / 2 - drawW / 2;
     const drawY = this.player.y + this.player.h - drawH;
+    const centerX = drawX + drawW / 2 + (transform.offsetX || 0);
+    const centerY = drawY + drawH / 2 + (transform.offsetY || 0);
+    const sourceFacing = clip?.facing || 1;
+    const flip = sourceFacing !== this.player.facing;
 
-    ctx.save();
-    if (sprite.flip) {
-      ctx.translate(drawX + drawW, drawY);
-      ctx.scale(-1, 1);
-      ctx.drawImage(sprite.image, 0, 0, drawW, drawH);
-    } else {
-      ctx.drawImage(sprite.image, drawX, drawY, drawW, drawH);
+    if (visualState === "dash") {
+      this.drawTransformedAnimationFrame(
+        ctx,
+        frame,
+        centerX - this.player.facing * 8,
+        centerY,
+        drawW,
+        drawH,
+        flip,
+        transform,
+        false,
+        0.3
+      );
+      this.drawTransformedAnimationFrame(
+        ctx,
+        frame,
+        centerX - this.player.facing * 16,
+        centerY,
+        drawW,
+        drawH,
+        flip,
+        transform,
+        false,
+        0.15
+      );
     }
-    ctx.restore();
+
+    this.drawTransformedAnimationFrame(
+      ctx,
+      frame,
+      centerX,
+      centerY,
+      drawW,
+      drawH,
+      flip,
+      transform,
+      flash
+    );
   }
 
-  getPlayerSprite() {
-    if (!this.sprites) return null;
-    const { idle, runLeft, runRight, jump, gun } = this.sprites;
-    const facingLeft = this.player.facing < 0;
-    const moving = Math.abs(this.player.vx) > 20;
+  getEnemyAnimationSet(enemy) {
+    if (!this.enemyAnimations) return null;
+    const set = this.enemyAnimations[enemy.type];
+    if (!set) return null;
 
-    if (gun && this.player.shootTimer > 0) {
-      return { image: gun, flip: facingLeft };
+    if (enemy.type === "swat" && enemy.state === ENTITY_STATES.ATTACK) {
+      return {
+        ...set,
+        [ENTITY_STATES.ATTACK]:
+          enemy.facing < 0
+            ? set.attackLeft || set[ENTITY_STATES.ATTACK]
+            : set.attackRight || set[ENTITY_STATES.ATTACK],
+      };
     }
 
-    if (!this.player.onGround) {
-      if (jump) {
-        return { image: jump, flip: facingLeft };
-      }
-      if (idle) {
-        return { image: idle, flip: facingLeft };
-      }
-      return null;
-    }
-
-    if (moving) {
-      if (facingLeft) {
-        if (runLeft) return { image: runLeft, flip: false };
-        if (runRight) return { image: runRight, flip: true };
-      } else {
-        if (runRight) return { image: runRight, flip: false };
-        if (runLeft) return { image: runLeft, flip: true };
-      }
-    }
-
-    if (idle) {
-      return { image: idle, flip: facingLeft };
-    }
-
-    return null;
+    return set;
   }
 
-  getEnemySprite(enemy) {
-    if (!this.enemySprites) return null;
-    const facing = enemy.facing || (enemy.vx < 0 ? -1 : 1);
-    const flip = facing < 0;
-
-    if (enemy.type === "redNinja") {
-      const sprite = this.enemySprites.redNinja || this.enemySprites.ninja;
-      return sprite ? { image: sprite, flip } : null;
-    }
-    if (enemy.type === "blueNinja") {
-      const sprite = this.enemySprites.blueNinja || this.enemySprites.ninja;
-      return sprite ? { image: sprite, flip } : null;
-    }
-    if (enemy.type === "ninja") {
-      return { image: this.enemySprites.ninja, flip };
-    }
-    if (enemy.type === "swat") {
-      if (enemy.shootTimer > 0) {
-        if (facing < 0 && this.enemySprites.swatShootLeft) {
-          return { image: this.enemySprites.swatShootLeft, flip: false };
-        }
-        if (facing > 0 && this.enemySprites.swatShootRight) {
-          return { image: this.enemySprites.swatShootRight, flip: false };
-        }
-      }
-      const sprite = this.enemySprites.swat || this.enemySprites.cop;
-      return sprite ? { image: sprite, flip } : null;
-    }
-    if (enemy.type === "cop") {
-      return { image: this.enemySprites.cop, flip };
-    }
-    if (enemy.type === "bulldog") {
-      const sprite = this.enemySprites.bulldog || this.enemySprites.snake;
-      return sprite ? { image: sprite, flip } : null;
-    }
-    if (enemy.type === "snake") {
-      return { image: this.enemySprites.snake, flip };
-    }
-    return null;
+  getEnemyAnimationPresentation(enemy) {
+    const animationSet = this.getEnemyAnimationSet(enemy);
+    const frame = getAnimationFrame(enemy, animationSet);
+    if (!frame) return null;
+    const flip =
+      enemy.type === "swat" && enemy.state === ENTITY_STATES.ATTACK
+        ? false
+        : (enemy.facing || (enemy.vx < 0 ? -1 : 1)) < 0;
+    return { frame, flip };
   }
 
-  drawEnemySprite(ctx, enemy, sprite, flash) {
-    const scale =
-      (this.enemyScales && this.enemyScales[enemy.type]) || 1;
-    const drawW = sprite.image.width * scale;
-    const drawH = sprite.image.height * scale;
+  drawEnemyFrame(ctx, enemy, frame, flip, flash) {
+    const scale = (this.enemyScales && this.enemyScales[enemy.type]) || 1;
+    const drawW = frame.sw * scale;
+    const drawH = frame.sh * scale;
     const drawX = enemy.x + enemy.w / 2 - drawW / 2;
     const baseOffset =
       enemy.type === "snake" || enemy.type === "bulldog" ? -2 : 0;
     const drawY = enemy.y + enemy.h - drawH + baseOffset;
+    const transform = this.animator.getEnemyTransform(
+      enemy,
+      this.player.x + this.player.w / 2
+    );
+    const centerX = drawX + drawW / 2 + (transform.offsetX || 0);
+    const centerY = drawY + drawH / 2 + (transform.offsetY || 0);
+    const shadowScale = Math.max(0, (transform.scaleX + transform.scaleY) * 0.5);
 
     if (enemy.type === "snake" || enemy.type === "bulldog") {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
-      ctx.fillRect(drawX + drawW * 0.2, enemy.y + enemy.h - 2, drawW * 0.6, 3);
+      ctx.fillStyle = `rgba(0, 0, 0, ${0.35 * shadowScale})`;
+      ctx.fillRect(
+        drawX + drawW * (0.5 - 0.3 * shadowScale),
+        enemy.y + enemy.h - 2,
+        drawW * 0.6 * shadowScale,
+        3
+      );
     }
 
-    if (sprite.flip) {
+    this.drawTransformedAnimationFrame(
+      ctx,
+      frame,
+      centerX,
+      centerY,
+      drawW,
+      drawH,
+      flip,
+      transform,
+      flash
+    );
+  }
+
+  drawAnimationFrame(ctx, frame, drawX, drawY, drawW, drawH, flip, flash) {
+    if (!frame || !frame.image) return;
+
+    if (flip) {
       ctx.save();
       ctx.translate(drawX + drawW, drawY);
       ctx.scale(-1, 1);
-      ctx.drawImage(sprite.image, 0, 0, drawW, drawH);
+      ctx.drawImage(
+        frame.image,
+        frame.sx,
+        frame.sy,
+        frame.sw,
+        frame.sh,
+        0,
+        0,
+        drawW,
+        drawH
+      );
       if (flash) {
         ctx.globalCompositeOperation = "source-atop";
         ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
         ctx.fillRect(0, 0, drawW, drawH);
       }
       ctx.restore();
-    } else {
-      ctx.drawImage(sprite.image, drawX, drawY, drawW, drawH);
-      if (flash) {
-        ctx.save();
-        ctx.globalCompositeOperation = "source-atop";
-        ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
-        ctx.fillRect(drawX, drawY, drawW, drawH);
-        ctx.restore();
-      }
+      return;
     }
+
+    ctx.drawImage(
+      frame.image,
+      frame.sx,
+      frame.sy,
+      frame.sw,
+      frame.sh,
+      drawX,
+      drawY,
+      drawW,
+      drawH
+    );
+    if (flash) {
+      ctx.save();
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.fillRect(drawX, drawY, drawW, drawH);
+      ctx.restore();
+    }
+  }
+
+  drawTransformedAnimationFrame(
+    ctx,
+    frame,
+    anchorX,
+    anchorY,
+    drawW,
+    drawH,
+    flip,
+    transform,
+    flash,
+    alpha = 1
+  ) {
+    if (!frame || !frame.image) return;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(anchorX, anchorY);
+    ctx.rotate(transform.rotation || 0);
+    ctx.scale((flip ? -1 : 1) * (transform.scaleX || 1), transform.scaleY || 1);
+    ctx.drawImage(
+      frame.image,
+      frame.sx,
+      frame.sy,
+      frame.sw,
+      frame.sh,
+      -drawW / 2,
+      -drawH / 2,
+      drawW,
+      drawH
+    );
+    if (flash) {
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.fillRect(-drawW / 2, -drawH / 2, drawW, drawH);
+    }
+    ctx.restore();
   }
 
   addShake(strength, duration) {

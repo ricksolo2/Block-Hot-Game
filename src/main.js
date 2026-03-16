@@ -1,6 +1,13 @@
-import { Game } from "./game.js";
-import { Input } from "./input.js";
-import { loadLevel } from "./level.js";
+import { Game } from "./game.js?v=11";
+import {
+  ENTITY_STATES,
+  createClip,
+  createFrame,
+  mergeFrames,
+  splitSpriteSheet,
+} from "./animation.js?v=4";
+import { Input } from "./input.js?v=5";
+import { loadLevel } from "./level.js?v=6";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d", { alpha: false });
@@ -9,171 +16,595 @@ ctx.imageSmoothingEnabled = false;
 const loadingEl = document.getElementById("loading");
 
 const input = new Input(window);
-const [
-  level1,
-  level2,
-  background1,
-  background2,
-  menuImage,
-  sprites,
-  enemySprites,
-  tileSprites,
-] = await Promise.all([
-  loadLevel("../levels/level1.json"),
-  loadLevel("../levels/level2.json"),
-  loadImage("../assets/background.png"),
-  loadImage("../assets/Level 2 background .png"),
-  loadImage("../assets/Loading Screen.png"),
-  loadPlayerSprites(),
-  loadEnemySprites(),
-  loadTileSprites(),
-]);
-const levels = [
-  { level: level1, background: background1 },
-  { level: level2, background: background2 || background1 },
-];
-const spriteScale = sprites?.idle ? 28 / sprites.idle.height : 1;
-const enemyScales = buildEnemyScales(enemySprites);
-
-const music = createMusic("../audio/2012 Drill x Lofi Hype.mp3", 0.3);
-const sfx = {
-  gun: createSfx("../audio/GUNPis-Generate_a_20-second-Elevenlabs.mp3", {
-    volume: 1,
-    poolSize: 6,
-  }),
-  coin: createSfx("../audio/UIAlert-Score_increase_sound-Elevenlabs.mp3", {
-    volume: 0.9,
-    poolSize: 8,
-  }),
-  siren: createSfx("../audio/VEHMisc-police_sirens-Elevenlabs.mp3", {
-    volume: 0.8,
-    poolSize: 2,
-  }),
-  bust: createSfx("../audio/Police_saying_Stop_R_#3-1767160089774.mp3", {
-    volume: 0.9,
-    poolSize: 2,
-  }),
-  death: createSfx("../audio/Man_grunting_when_ge_#1-1767163819478.mp3", {
-    volume: 0.9,
-    poolSize: 2,
-  }),
-  snake: createSfx("../audio/Snake_attacking_#3-1767164227281.mp3", {
-    volume: 0.8,
-    poolSize: 4,
-  }),
-  ninja: createSfx("../audio/Ninja_attacking_#3-1767164007149.mp3", {
-    volume: 0.8,
-    poolSize: 4,
-  }),
-  fall: createSfx("../audio/Man_yelling_loud_whi_#4-1767165390067.mp3", {
-    volume: 0.9,
-    poolSize: 2,
-  }),
-};
-const audioState = {
-  volume: 0.6,
-  muted: false,
-  lastVolume: 0.6,
-  step: 0.1,
-};
-applyAudioState(music, sfx, audioState);
-
-const game = new Game(canvas, ctx, input, levels[0].level, {
-  levels,
-  background: levels[0].background,
-  menuImage,
-  sprites,
-  spriteScale,
-  enemySprites,
-  enemyScales,
-  tileSprites,
-  sfx,
+bootstrap().catch((error) => {
+  console.error("BlockHot failed to boot.", error);
+  loadingEl.textContent = `Failed to load game: ${error.message || error}`;
 });
-game.music = music;
-loadingEl.style.display = "none";
 
-game.start();
-window.addEventListener("resize", () => game.resize());
-game.audioState = audioState;
-setupAudioStart(music, sfx);
-setupAudioControls(music, sfx, audioState);
+async function bootstrap() {
+  const [
+    level1,
+    level2,
+    level3,
+    background1,
+    background2,
+    background3Primary,
+    background3Alt,
+    background3Fallback,
+    menuImage,
+    playerAnimations,
+    enemyAnimations,
+    tileSprites,
+    powerUpSprites,
+  ] = await Promise.all([
+    loadLevel(resolveUrl("../levels/level1.json")),
+    loadLevel(resolveUrl("../levels/level2.json")),
+    loadLevel(resolveUrl("../levels/level3.json")),
+    loadImage("../assets/background.png"),
+    loadImage("../assets/Level 2 background .png"),
+    loadImage("../assets/Level 3 Background .png"),
+    loadImage("../assets/Level 3 background .png"),
+    loadImage("../assets/O-Block Background.png"),
+    loadImage("../assets/Loading Screen.png"),
+    loadPlayerAnimations(),
+    loadEnemyAnimations(),
+    loadTileSprites(),
+    loadPowerUpSprites(),
+  ]);
+  const levels = [
+    { level: level1, background: background1 },
+    { level: level2, background: background2 || background1 },
+    {
+      level: level3,
+      background:
+        background3Primary ||
+        background3Alt ||
+        background3Fallback ||
+        background2 ||
+        background1,
+    },
+  ];
+  const spriteScale = playerAnimations?.baseHeight
+    ? 28 / playerAnimations.baseHeight
+    : 1;
+  const enemyScales = buildEnemyScales(enemyAnimations);
+
+  const music = createMusic("../audio/2012 Drill x Lofi Hype.mp3", 0.3);
+  const sfx = {
+    gun: createSfx("../audio/GUNPis-Generate_a_20-second-Elevenlabs.mp3", {
+      volume: 1,
+      poolSize: 10,
+    }),
+    coin: createSfx("../audio/UIAlert-Score_increase_sound-Elevenlabs.mp3", {
+      volume: 0.9,
+      poolSize: 8,
+    }),
+    siren: createSfx("../audio/VEHMisc-police_sirens-Elevenlabs.mp3", {
+      volume: 0.8,
+      poolSize: 2,
+    }),
+    bust: createSfx("../audio/Police_saying_Stop_R_#3-1767160089774.mp3", {
+      volume: 0.9,
+      poolSize: 2,
+    }),
+    death: createSfx("../audio/Man_grunting_when_ge_#1-1767163819478.mp3", {
+      volume: 0.9,
+      poolSize: 2,
+    }),
+    snake: createSfx("../audio/Snake_attacking_#3-1767164227281.mp3", {
+      volume: 0.8,
+      poolSize: 4,
+    }),
+    ninja: createSfx("../audio/Ninja_attacking_#3-1767164007149.mp3", {
+      volume: 0.8,
+      poolSize: 4,
+    }),
+    fall: createSfx("../audio/Man_yelling_loud_whi_#4-1767165390067.mp3", {
+      volume: 0.9,
+      poolSize: 2,
+    }),
+    bulldog: createSfx("../audio/Bulldog_growling_agg_#4-1767427632987.mp3", {
+      volume: 0.8,
+      poolSize: 4,
+    }),
+  };
+  const audioState = {
+    volume: 0.6,
+    muted: false,
+    lastVolume: 0.6,
+    step: 0.1,
+  };
+  applyAudioState(music, sfx, audioState);
+
+  const game = new Game(canvas, ctx, input, levels[0].level, {
+    levels,
+    background: levels[0].background,
+    menuImage,
+    playerAnimations,
+    spriteScale,
+    enemyAnimations,
+    enemyScales,
+    powerUpSprites,
+    tileSprites,
+    sfx,
+  });
+  game.music = music;
+  game.audioState = audioState;
+
+  loadingEl.style.display = "none";
+  game.start();
+  window.addEventListener("resize", () => game.resize());
+  setupAudioStart(music, sfx);
+  setupAudioControls(music, sfx, audioState);
+}
 
 function loadImage(path) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = path;
+    img.src = resolveUrl(path);
   });
 }
 
-async function loadPlayerSprites() {
-  const [idle, runLeft, runRight, jumpRight, gun, jumpFallback] =
+async function loadPlayerAnimations() {
+  const [
+    idleRight,
+    idleLeft,
+    runRight,
+    runLeftA,
+    runLeftB,
+    jumpLeftSingle,
+    jumpRightSingle,
+    jumpSheet,
+    gunReady,
+    shootRight,
+  ] =
     await Promise.all([
-      loadSprite("../assets/MC Standing .png"),
-      loadSprite("../assets/MC running left.png"),
-      loadSprite("../assets/MC running right .jpeg"),
-      loadSprite("../assets/MC Jumping right way .png"),
-      loadSprite("../assets/MC with Gun.png"),
-      loadSprite("../assets/Gemini_Generated_Image_ymfjl3ymfjl3ymfj.png"),
+      loadSprite("../assets/MC idle standing right.jpg"),
+      loadSprite("../assets/MC idle standing left.jpg"),
+      loadSprite("../assets/MC running right (1) jpg.jpg"),
+      loadSprite("../assets/MC running left (1).jpg"),
+      loadSprite("../assets/MC running left-2 .jpg"),
+      loadSprite("../assets/MC jumping .jpg"),
+      loadSprite("../assets/MC jumping right.png"),
+      loadImage("../assets/Gemini_Generated_Image_ixbq8gixbq8gixbq.png"),
+      loadSprite("../assets/MC with Gun (1) .jpg"),
+      loadSprite("../assets/MC Shooting right.jpg"),
     ]);
 
-  const jump = jumpRight || jumpFallback;
+  const [jumpSheetRight, jumpSheetLeft] = splitImageColumns(jumpSheet, 2)
+    .map((image) => processSource(image))
+    .filter(Boolean);
+  const referenceSprite =
+    idleRight ||
+    idleLeft ||
+    runRight ||
+    runLeftA ||
+    jumpRightSingle ||
+    jumpLeftSingle ||
+    gunReady ||
+    shootRight ||
+    jumpSheetRight ||
+    null;
+  const referenceHeight = referenceSprite?.height || 1;
+  const rightIdleSprites = matchSpritesToHeight(
+    [idleRight || idleLeft || runRight || gunReady].filter(Boolean),
+    referenceHeight
+  );
+  const leftIdleSprites = matchSpritesToHeight(
+    [idleLeft || idleRight || runLeftA || jumpSheetLeft].filter(Boolean),
+    referenceHeight
+  );
+  const rightRunSprites = matchSpritesToHeight(
+    [runRight || idleRight].filter(Boolean),
+    referenceHeight
+  );
+  const leftRunSprites = matchSpritesToHeight(
+    [runLeftA, runLeftB].filter(Boolean),
+    referenceHeight
+  );
+  const rightJumpSprites = matchSpritesToHeight(
+    [jumpLeftSingle || jumpSheetLeft || jumpRightSingle || idleRight].filter(Boolean),
+    referenceHeight
+  );
+  const leftJumpSprites = matchSpritesToHeight(
+    [jumpRightSingle || jumpSheetRight || jumpLeftSingle || idleLeft].filter(Boolean),
+    referenceHeight
+  );
+  const rightAttackSprites = matchSpritesToHeight(
+    [gunReady || shootRight || idleRight, shootRight || gunReady || idleRight].filter(
+      Boolean
+    ),
+    referenceHeight
+  );
+  const rightStunnedSprites = matchSpritesToHeight(
+    [jumpLeftSingle || jumpSheetLeft || idleRight].filter(Boolean),
+    referenceHeight
+  );
+  const leftStunnedSprites = matchSpritesToHeight(
+    [jumpRightSingle || jumpSheetRight || idleLeft].filter(Boolean),
+    referenceHeight
+  );
 
-  if (!idle && !runLeft && !runRight && !jump && !gun) {
+  if (
+    rightIdleSprites.length === 0 &&
+    leftIdleSprites.length === 0 &&
+    rightRunSprites.length === 0 &&
+    leftRunSprites.length === 0 &&
+    rightAttackSprites.length === 0
+  ) {
     return null;
   }
 
-  return { idle, runLeft, runRight, jump, gun };
+  const normalized = normalizeSpriteGroups({
+    idleRight: rightIdleSprites,
+    idleLeft: leftIdleSprites,
+    runRight: rightRunSprites,
+    runLeft: leftRunSprites,
+    jumpRight: rightJumpSprites,
+    jumpLeft: leftJumpSprites,
+    attackRight: rightAttackSprites,
+    stunnedRight: rightStunnedSprites,
+    stunnedLeft: leftStunnedSprites,
+    deadRight: rightStunnedSprites.length > 0 ? [rightStunnedSprites.at(-1)] : [],
+    deadLeft: leftStunnedSprites.length > 0 ? [leftStunnedSprites.at(-1)] : [],
+  });
+
+  return {
+    [ENTITY_STATES.IDLE]: createDirectionalClips(
+      normalized.idleRight,
+      normalized.idleLeft,
+      { frameDuration: 0.2 }
+    ),
+    [ENTITY_STATES.RUN]: createDirectionalClips(
+      normalized.runRight,
+      normalized.runLeft,
+      { frameDuration: 0.1 }
+    ),
+    [ENTITY_STATES.ATTACK]: createDirectionalClips(
+      normalized.attackRight,
+      [],
+      {
+        frameDuration: 0.08,
+        loop: false,
+      }
+    ),
+    [ENTITY_STATES.STUNNED]: createDirectionalClips(
+      normalized.stunnedRight,
+      normalized.stunnedLeft,
+      {
+        frameDuration: 0.1,
+        loop: false,
+      }
+    ),
+    [ENTITY_STATES.DEAD]: createDirectionalClips(
+      normalized.deadRight,
+      normalized.deadLeft,
+      {
+        frameDuration: 0.12,
+        loop: false,
+      }
+    ),
+    [ENTITY_STATES.JUMP]: createDirectionalClips(
+      normalized.jumpRight,
+      normalized.jumpLeft,
+      {
+        frameDuration: 0.18,
+        loop: false,
+      }
+    ),
+    baseHeight: normalized.baseHeight,
+  };
 }
 
-async function loadEnemySprites() {
+async function loadEnemyAnimations() {
   const [
+    ninjaMovement,
     ninja,
     cop,
     snake,
+    snakeIdleSheet,
+    snakeAttackSheet,
     redNinja,
     blueNinja,
-    swat,
+    redNinjaAttack,
+    blueNinjaAttack,
+    swatLegacy,
+    swatIdle,
+    swatWalkLeft,
+    swatWalkRight,
     swatShootLeft,
     swatShootRight,
+    swatLegacyShootLeft,
+    swatLegacyShootRight,
+    bulldogMovement,
+    bulldogAttack,
     bulldog,
   ] = await Promise.all([
+    loadImage("../assets/Ninja_attacker_movement.png"),
     loadSprite("../assets/Ninja Attacker.png"),
     loadSprite("../assets/Police Character .png"),
     loadSprite("../assets/Snake in Grass.png"),
+    loadImage("../assets/Snake_in_grass_idle.png"),
+    loadImage("../assets/Snake_in_grass_attack.png"),
     loadSprite("../assets/Red Ninja - L2 .png"),
     loadSprite("../assets/Blue Ninja - L2.png"),
+    loadSprite("../assets/Red Ninja Attacking .png"),
+    loadSprite("../assets/Blue ninja attacking .png"),
     loadSprite("../assets/Swat Cops - L2.png"),
+    loadSprite("../assets/Swat idle standing.png"),
+    loadSprite("../assets/Swat walking left.png"),
+    loadSprite("../assets/Swat walking right.png"),
+    loadSprite("../assets/Swat shooting left.png"),
+    loadSprite("../assets/Swat shooting right.png"),
     loadSprite("../assets/Swat with Gub left.png"),
     loadSprite("../assets/Swat with Gun right.png"),
+    loadImage("../assets/bulldog_movement.png"),
+    loadImage("../assets/bulldog_attack.png"),
     loadSprite("../assets/Bulldog - L2.png"),
   ]);
 
   if (
+    !ninjaMovement &&
     !ninja &&
     !cop &&
     !snake &&
+    !snakeIdleSheet &&
+    !snakeAttackSheet &&
     !redNinja &&
     !blueNinja &&
-    !swat &&
+    !redNinjaAttack &&
+    !blueNinjaAttack &&
+    !swatLegacy &&
+    !swatIdle &&
+    !swatWalkLeft &&
+    !swatWalkRight &&
     !swatShootLeft &&
     !swatShootRight &&
+    !swatLegacyShootLeft &&
+    !swatLegacyShootRight &&
+    !bulldogMovement &&
+    !bulldogAttack &&
     !bulldog
   ) {
     return null;
   }
 
+  const [ninjaTop, ninjaBottom] = splitImageRows(ninjaMovement, 2);
+  const [bulldogMoveTop, bulldogMoveBottom] = splitImageRows(
+    bulldogMovement,
+    2
+  );
+  const [bulldogAttackTop, bulldogAttackBottom] = splitImageRows(
+    bulldogAttack,
+    2
+  );
+  const snakeIdleSprites = snakeIdleSheet
+    ? extractRowFrameSprites(snakeIdleSheet, 2, 1, 3)
+    : [];
+  const snakeAttackSprites = snakeAttackSheet
+    ? extractRowFrameSprites(snakeAttackSheet, 2, 1, 3)
+    : [];
+
+  const ninjaTopStrip = processSource(ninjaTop);
+  const ninjaBottomStrip = processSource(ninjaBottom);
+  const bulldogMoveTopStrip = processSource(bulldogMoveTop);
+  const bulldogMoveBottomStrip = processSource(bulldogMoveBottom);
+  const bulldogAttackTopStrip = processSource(bulldogAttackTop);
+  const bulldogAttackBottomStrip = processSource(bulldogAttackBottom);
+
+  const ninjaRunFrames = mergeFrames(
+    splitFrames(ninjaTopStrip, 4),
+    splitFrames(ninjaBottomStrip, 3)
+  );
+  const ninjaIdleFrames = mergeFrames(splitFrames(ninjaBottomStrip, 3));
+
+  const bulldogRunFrames = mergeFrames(
+    splitFrames(bulldogMoveTopStrip, 2),
+    splitFrames(bulldogMoveBottomStrip, 2)
+  );
+  const bulldogAttackFrames = mergeFrames(
+    splitFrames(bulldogAttackTopStrip, 2),
+    splitFrames(bulldogAttackBottomStrip, 2)
+  );
+  const normalizedSnake = normalizeSpriteGroups({
+    idle:
+      snakeIdleSprites.length > 0
+        ? snakeIdleSprites
+        : [snake].filter(Boolean),
+    attack:
+      snakeAttackSprites.length > 0
+        ? snakeAttackSprites
+        : [snake].filter(Boolean),
+  });
+  const swatIdleRightSprite =
+    swatIdle || swatWalkRight || swatLegacy || swatLegacyShootRight || null;
+  const swatIdleLeftSprite =
+    swatWalkLeft || flipSprite(swatIdleRightSprite) || swatIdleRightSprite;
+  const swatShootRightSprite =
+    swatShootRight || swatLegacyShootRight || swatIdleRightSprite;
+  const swatShootLeftSprite =
+    swatShootLeft || swatLegacyShootLeft || flipSprite(swatShootRightSprite);
+  const swatReferenceHeight =
+    swatIdleRightSprite?.height ||
+    swatWalkRight?.height ||
+    swatWalkLeft?.height ||
+    swatShootRightSprite?.height ||
+    swatShootLeftSprite?.height ||
+    1;
+  const normalizedSwat = normalizeSpriteGroups({
+    idleRight: matchSpritesToHeight([swatIdleRightSprite].filter(Boolean), swatReferenceHeight),
+    idleLeft: matchSpritesToHeight([swatIdleLeftSprite].filter(Boolean), swatReferenceHeight),
+    runRight: matchSpritesToHeight(
+      [swatWalkRight || swatIdleRightSprite, swatIdleRightSprite].filter(Boolean),
+      swatReferenceHeight
+    ),
+    runLeft: matchSpritesToHeight(
+      [swatWalkLeft || swatIdleLeftSprite, swatIdleLeftSprite].filter(Boolean),
+      swatReferenceHeight
+    ),
+    attackRight: matchSpritesToHeight([swatShootRightSprite].filter(Boolean), swatReferenceHeight),
+    attackLeft: matchSpritesToHeight([swatShootLeftSprite].filter(Boolean), swatReferenceHeight),
+    stunnedRight: matchSpritesToHeight([swatIdleRightSprite].filter(Boolean), swatReferenceHeight),
+    stunnedLeft: matchSpritesToHeight([swatIdleLeftSprite].filter(Boolean), swatReferenceHeight),
+    deadRight: matchSpritesToHeight([swatShootRightSprite].filter(Boolean), swatReferenceHeight),
+    deadLeft: matchSpritesToHeight([swatShootLeftSprite].filter(Boolean), swatReferenceHeight),
+  });
+
   return {
-    ninja,
-    cop,
-    snake,
-    redNinja,
-    blueNinja,
-    swat,
-    swatShootLeft,
-    swatShootRight,
-    bulldog,
+    ninja: {
+      [ENTITY_STATES.IDLE]: createClip(
+        ninjaIdleFrames.length > 0
+          ? ninjaIdleFrames
+          : mergeFrames(createFrame(ninja)),
+        { frameDuration: 0.18 }
+      ),
+      [ENTITY_STATES.RUN]: createClip(
+        ninjaRunFrames.length > 0
+          ? ninjaRunFrames
+          : mergeFrames(createFrame(ninja)),
+        { frameDuration: 0.12 }
+      ),
+      [ENTITY_STATES.ATTACK]: createClip(
+        mergeFrames(createFrame(ninja), ninjaRunFrames.at(0)),
+        { frameDuration: 0.08, loop: false }
+      ),
+      [ENTITY_STATES.STUNNED]: createClip(
+        mergeFrames(ninjaIdleFrames.at(1), createFrame(ninja)),
+        { frameDuration: 0.1, loop: false }
+      ),
+      [ENTITY_STATES.DEAD]: createClip(
+        mergeFrames(ninjaIdleFrames.at(-1), createFrame(ninja)),
+        { frameDuration: 0.12, loop: false }
+      ),
+      baseHeight:
+        ninjaTopStrip?.height ||
+        ninjaBottomStrip?.height ||
+        ninja?.height ||
+        1,
+    },
+    cop: createStaticAnimationSet(cop, { baseHeight: cop?.height || 1 }),
+    snake: {
+      [ENTITY_STATES.IDLE]: clipFromSprites(normalizedSnake.idle, {
+        frameDuration: 0.2,
+      }),
+      [ENTITY_STATES.RUN]: clipFromSprites(normalizedSnake.idle, {
+        frameDuration: 0.18,
+      }),
+      [ENTITY_STATES.ATTACK]: clipFromSprites(normalizedSnake.attack, {
+        frameDuration: 0.09,
+        loop: false,
+      }),
+      [ENTITY_STATES.STUNNED]: clipFromSprites(
+        [
+          normalizedSnake.idle.at(1) ||
+            normalizedSnake.idle[0] ||
+            normalizedSnake.attack[0],
+        ].filter(Boolean),
+        { frameDuration: 0.12, loop: false }
+      ),
+      [ENTITY_STATES.DEAD]: clipFromSprites(
+        [
+          normalizedSnake.attack.at(-1) ||
+            normalizedSnake.idle.at(-1) ||
+            normalizedSnake.idle[0],
+        ].filter(Boolean),
+        { frameDuration: 0.12, loop: false }
+      ),
+      baseHeight: normalizedSnake.baseHeight,
+    },
+    redNinja: createStaticAnimationSet(redNinja, {
+      attack: redNinjaAttack,
+      baseHeight: redNinja?.height || redNinjaAttack?.height || 1,
+    }),
+    blueNinja: createStaticAnimationSet(blueNinja, {
+      attack: blueNinjaAttack,
+      baseHeight: blueNinja?.height || blueNinjaAttack?.height || 1,
+    }),
+    swat: {
+      [ENTITY_STATES.IDLE]: createDirectionalClips(
+        normalizedSwat.idleRight,
+        normalizedSwat.idleLeft,
+        { frameDuration: 0.2 }
+      ),
+      [ENTITY_STATES.RUN]: createDirectionalClips(
+        normalizedSwat.runRight,
+        normalizedSwat.runLeft,
+        { frameDuration: 0.14 }
+      ),
+      [ENTITY_STATES.ATTACK]: clipFromSprites(normalizedSwat.attackRight, {
+        frameDuration: 0.08,
+        loop: false,
+      }),
+      attackLeft: clipFromSprites(normalizedSwat.attackLeft, {
+        frameDuration: 0.08,
+        loop: false,
+      }),
+      attackRight: clipFromSprites(normalizedSwat.attackRight, {
+        frameDuration: 0.08,
+        loop: false,
+      }),
+      [ENTITY_STATES.STUNNED]: createDirectionalClips(
+        normalizedSwat.stunnedRight,
+        normalizedSwat.stunnedLeft,
+        {
+          frameDuration: 0.1,
+          loop: false,
+        }
+      ),
+      [ENTITY_STATES.DEAD]: createDirectionalClips(
+        normalizedSwat.deadRight,
+        normalizedSwat.deadLeft,
+        {
+          frameDuration: 0.12,
+          loop: false,
+        }
+      ),
+      baseHeight: normalizedSwat.baseHeight,
+    },
+    bulldog: {
+      [ENTITY_STATES.IDLE]: createClip(
+        mergeFrames(
+          bulldogRunFrames.at(0),
+          createFrame(bulldog)
+        ),
+        { frameDuration: 0.16 }
+      ),
+      [ENTITY_STATES.RUN]: createClip(
+        bulldogRunFrames.length > 0
+          ? bulldogRunFrames
+          : mergeFrames(createFrame(bulldog)),
+        { frameDuration: 0.11 }
+      ),
+      [ENTITY_STATES.ATTACK]: createClip(
+        bulldogAttackFrames.length > 0
+          ? bulldogAttackFrames
+          : mergeFrames(createFrame(bulldog)),
+        { frameDuration: 0.09, loop: false }
+      ),
+      [ENTITY_STATES.STUNNED]: createClip(
+        mergeFrames(
+          bulldogAttackFrames.at(0),
+          bulldogRunFrames.at(0),
+          createFrame(bulldog)
+        ),
+        { frameDuration: 0.1, loop: false }
+      ),
+      [ENTITY_STATES.DEAD]: createClip(
+        mergeFrames(
+          bulldogAttackFrames.at(-1),
+          bulldogRunFrames.at(-1),
+          createFrame(bulldog)
+        ),
+        { frameDuration: 0.12, loop: false }
+      ),
+      baseHeight:
+        bulldogMoveTopStrip?.height ||
+        bulldogMoveBottomStrip?.height ||
+        bulldog?.height ||
+        1,
+    },
   };
 }
 
@@ -184,20 +615,32 @@ async function loadTileSprites() {
   return { grass };
 }
 
-function buildEnemyScales(sprites) {
-  if (!sprites) return null;
+async function loadPowerUpSprites() {
+  const [gun, health] = await Promise.all([
+    loadSprite("../assets/Gun power up.png"),
+    loadSprite("../assets/health power up.png"),
+  ]);
+
+  if (!gun && !health) return null;
+  return { gun, health };
+}
+
+function buildEnemyScales(animationSets) {
+  if (!animationSets) return null;
   const scales = {};
-  if (sprites.ninja) scales.ninja = 26 / sprites.ninja.height;
-  if (sprites.redNinja) scales.redNinja = 26 / sprites.redNinja.height;
-  if (sprites.blueNinja) scales.blueNinja = 26 / sprites.blueNinja.height;
-  if (sprites.cop) scales.cop = 28 / sprites.cop.height;
-  if (sprites.swat || sprites.swatShootRight || sprites.swatShootLeft) {
-    const swatBase =
-      sprites.swat || sprites.swatShootRight || sprites.swatShootLeft;
-    scales.swat = 28 / swatBase.height;
+  if (animationSets.ninja?.baseHeight) scales.ninja = 26 / animationSets.ninja.baseHeight;
+  if (animationSets.redNinja?.baseHeight) {
+    scales.redNinja = 26 / animationSets.redNinja.baseHeight;
   }
-  if (sprites.snake) scales.snake = 14 / sprites.snake.height;
-  if (sprites.bulldog) scales.bulldog = 16 / sprites.bulldog.height;
+  if (animationSets.blueNinja?.baseHeight) {
+    scales.blueNinja = 26 / animationSets.blueNinja.baseHeight;
+  }
+  if (animationSets.cop?.baseHeight) scales.cop = 28 / animationSets.cop.baseHeight;
+  if (animationSets.swat?.baseHeight) scales.swat = 28 / animationSets.swat.baseHeight;
+  if (animationSets.snake?.baseHeight) scales.snake = 14 / animationSets.snake.baseHeight;
+  if (animationSets.bulldog?.baseHeight) {
+    scales.bulldog = 16 / animationSets.bulldog.baseHeight;
+  }
   return scales;
 }
 
@@ -207,8 +650,223 @@ async function loadSprite(path) {
   return processSprite(img);
 }
 
+function splitImageRows(image, rowCount) {
+  if (!image || rowCount <= 0) return [];
+  const rows = [];
+  for (let row = 0; row < rowCount; row += 1) {
+    const startY = Math.round((row * image.height) / rowCount);
+    const endY = Math.round(((row + 1) * image.height) / rowCount);
+    rows.push(
+      cropImage(image, {
+        x: 0,
+        y: startY,
+        w: image.width,
+        h: Math.max(1, endY - startY),
+      })
+    );
+  }
+  return rows;
+}
+
+function splitImageColumns(image, columnCount) {
+  if (!image || columnCount <= 0) return [];
+  const columns = [];
+  for (let column = 0; column < columnCount; column += 1) {
+    const startX = Math.round((column * image.width) / columnCount);
+    const endX = Math.round(((column + 1) * image.width) / columnCount);
+    columns.push(
+      cropImage(image, {
+        x: startX,
+        y: 0,
+        w: Math.max(1, endX - startX),
+        h: image.height,
+      })
+    );
+  }
+  return columns;
+}
+
+function cropImage(image, rect) {
+  if (!image || !rect) return image;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(rect.w));
+  canvas.height = Math.max(1, Math.round(rect.h));
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(
+    image,
+    Math.round(rect.x),
+    Math.round(rect.y),
+    Math.round(rect.w),
+    Math.round(rect.h),
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+  return canvas;
+}
+
+function flipSprite(sprite) {
+  if (!sprite) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = sprite.width;
+  canvas.height = sprite.height;
+  const ctx = canvas.getContext("2d");
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(sprite, 0, 0);
+  return canvas;
+}
+
+function processSource(image) {
+  if (!image) return null;
+  return processSprite(image);
+}
+
+function extractFrameSprites(image, frameCount) {
+  if (!image) return [];
+  return splitSpriteSheet(image, frameCount)
+    .map((frame) =>
+      processSource(
+        cropImage(frame.image, {
+          x: frame.sx,
+          y: frame.sy,
+          w: frame.sw,
+          h: frame.sh,
+        })
+      )
+    )
+    .filter(Boolean);
+}
+
+function extractRowFrameSprites(image, rowCount, rowIndex, frameCount) {
+  const rows = splitImageRows(image, rowCount);
+  const rowImage = rows[rowIndex];
+  return extractFrameSprites(rowImage, frameCount);
+}
+
+function normalizeSpriteGroups(groups) {
+  let maxWidth = 1;
+  let maxHeight = 1;
+
+  Object.values(groups)
+    .flat()
+    .forEach((sprite) => {
+      if (!sprite) return;
+      maxWidth = Math.max(maxWidth, sprite.width);
+      maxHeight = Math.max(maxHeight, sprite.height);
+    });
+
+  const normalized = { baseWidth: maxWidth, baseHeight: maxHeight };
+  for (const [key, sprites] of Object.entries(groups)) {
+    normalized[key] = sprites
+      .filter(Boolean)
+      .map((sprite) => padSprite(sprite, maxWidth, maxHeight));
+  }
+
+  return normalized;
+}
+
+function padSprite(sprite, width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  const drawX = Math.round((width - sprite.width) / 2);
+  const drawY = Math.round(height - sprite.height);
+  ctx.drawImage(sprite, drawX, drawY);
+  return canvas;
+}
+
+function scaleSpritesToHeight(sprites, targetHeight) {
+  return sprites.map((sprite) => scaleSpriteToHeight(sprite, targetHeight));
+}
+
+function matchSpritesToHeight(sprites, targetHeight, tolerance = 0.08) {
+  return sprites
+    .filter(Boolean)
+    .map((sprite) => matchSpriteToHeight(sprite, targetHeight, tolerance));
+}
+
+function scaleSpriteToHeight(sprite, targetHeight) {
+  if (!sprite || !targetHeight || sprite.height <= targetHeight * 1.15) {
+    return sprite;
+  }
+
+  const scale = targetHeight / sprite.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(sprite.width * scale));
+  canvas.height = Math.max(1, Math.round(sprite.height * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(sprite, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function matchSpriteToHeight(sprite, targetHeight, tolerance = 0.08) {
+  if (!sprite || !targetHeight) return sprite;
+  const ratio = sprite.height / targetHeight;
+  if (Math.abs(1 - ratio) <= tolerance) {
+    return sprite;
+  }
+
+  const scale = targetHeight / sprite.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(sprite.width * scale));
+  canvas.height = Math.max(1, Math.round(sprite.height * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(sprite, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function splitFrames(image, frameCount) {
+  return image ? splitSpriteSheet(image, frameCount) : [];
+}
+
+function clipFromSprites(sprites, options = {}) {
+  return createClip(
+    sprites.filter(Boolean).map((sprite) => createFrame(sprite)),
+    options
+  );
+}
+
+function createDirectionalClips(rightSprites, leftSprites, options = {}) {
+  const rightClip = clipFromSprites(rightSprites, { ...options, facing: 1 });
+  const leftClip = clipFromSprites(leftSprites, { ...options, facing: -1 });
+  if (!rightClip && !leftClip) return null;
+  return {
+    right: rightClip || leftClip,
+    left: leftClip || rightClip,
+  };
+}
+
+function createStaticAnimationSet(image, options = {}) {
+  const idle = createFrame(image);
+  const attack = createFrame(options.attack || image);
+  const dead = createFrame(options.dead || options.attack || image);
+
+  return {
+    [ENTITY_STATES.IDLE]: createClip(mergeFrames(idle), { frameDuration: 0.2 }),
+    [ENTITY_STATES.RUN]: createClip(mergeFrames(idle), { frameDuration: 0.15 }),
+    [ENTITY_STATES.ATTACK]: createClip(mergeFrames(attack || idle), {
+      frameDuration: 0.08,
+      loop: false,
+    }),
+    [ENTITY_STATES.STUNNED]: createClip(mergeFrames(idle), {
+      frameDuration: 0.1,
+      loop: false,
+    }),
+    [ENTITY_STATES.DEAD]: createClip(mergeFrames(dead || idle), {
+      frameDuration: 0.12,
+      loop: false,
+    }),
+    baseHeight: options.baseHeight || image?.height || 1,
+  };
+}
+
 function createMusic(path, baseVolume = 1) {
-  const audio = new Audio(encodePath(path));
+  const audio = new Audio(resolveUrl(path));
   audio.loop = true;
   audio.preload = "auto";
   audio.load();
@@ -220,7 +878,7 @@ function createSfx(path, options = {}) {
   const poolSize = options.poolSize ?? 4;
   const baseVolume = options.volume ?? 1;
   const clips = Array.from({ length: poolSize }, () => {
-    const clip = new Audio(encodePath(path));
+    const clip = new Audio(resolveUrl(path));
     clip.preload = "auto";
     clip.load();
     return clip;
@@ -266,6 +924,10 @@ function encodePath(path) {
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
+}
+
+function resolveUrl(path) {
+  return new URL(encodePath(path), import.meta.url).href;
 }
 
 function applyAudioState(music, sfx, state) {
@@ -365,7 +1027,16 @@ function processSprite(img) {
   const width = canvas.width;
   const height = canvas.height;
   const visited = new Uint8Array(width * height);
-  const stack = [0];
+  const stack = [];
+
+  for (let x = 0; x < width; x += 1) {
+    stack.push(x);
+    if (height > 1) stack.push((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    stack.push(y * width);
+    if (width > 1) stack.push(y * width + (width - 1));
+  }
 
   while (stack.length) {
     const idx = stack.pop();
@@ -378,8 +1049,10 @@ function processSprite(img) {
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const brightness = (r + g + b) / 3;
-    const isGray = max - min < 18;
-    const isBackground = isGray && brightness > 130;
+    const isNeutralLight = max - min < 60 && brightness > 150;
+    const isNearWhite = brightness > 205;
+    const isSoftPaper = min > 145 && brightness > 165;
+    const isBackground = isNearWhite || isSoftPaper || isNeutralLight;
     if (!isBackground) {
       continue;
     }

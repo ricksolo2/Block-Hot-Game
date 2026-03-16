@@ -1,5 +1,6 @@
-import { CONFIG, PELLETS } from "./constants.js";
-import { clamp } from "./utils.js";
+import { ENTITY_STATES } from "./animation.js?v=4";
+import { CONFIG, PELLETS } from "./constants.js?v=6";
+import { clamp } from "./utils.js?v=5";
 
 const MOVE = {
   accel: 1600,
@@ -9,11 +10,20 @@ const MOVE = {
   airFriction: 500,
 };
 
+const WET_MOVE = {
+  accelMultiplier: 0.8,
+  maxSpeedMultiplier: 1.08,
+  frictionMultiplier: 0.22,
+};
+
 const JUMP = {
   speed: 380,
   holdTime: 0.18,
   holdBoost: 900,
   wallKickX: 220,
+  coyoteTime: 0.08,
+  bufferTime: 0.1,
+  wallSlideSpeed: 60,
 };
 
 const DASH = {
@@ -42,26 +52,47 @@ export class Player {
     this.onPlatform = false;
     this.touchingLeft = false;
     this.touchingRight = false;
+    this.wallSliding = false;
     this.jumpHold = 0;
     this.dashTime = 0;
+    this.dashDir = 1;
     this.dashCooldown = 0;
     this.airDashAvailable = true;
     this.dropThroughTimer = 0;
     this.dropThrough = false;
+    this.coyoteTimer = 0;
+    this.jumpBuffer = 0;
+    this.landTimer = 0;
+    this.hitAnimTimer = 0;
     this.hp = this.maxHp;
     this.invuln = 0;
+    this.hurtTimer = 0;
+    this.surfaceType = "air";
     this.ammo = this.maxAmmo;
     this.reloadTimer = 0;
     this.shootTimer = 0;
     this.pelletIndex = 0;
+    this.tripleShotTimer = 0;
+    this.state = ENTITY_STATES.IDLE;
+    this.stateTime = 0;
+    this.animationFrame = 0;
+    this.animationTimer = 0;
   }
 
   update(dt, input, level, game) {
+    this.stateTime += dt;
     this.invuln = Math.max(0, this.invuln - dt);
+    this.hurtTimer = Math.max(0, this.hurtTimer - dt);
     this.dropThroughTimer = Math.max(0, this.dropThroughTimer - dt);
     this.dropThrough = this.dropThroughTimer > 0;
     this.dashCooldown = Math.max(0, this.dashCooldown - dt);
     this.shootTimer = Math.max(0, this.shootTimer - dt);
+    this.tripleShotTimer = Math.max(0, this.tripleShotTimer - dt);
+    this.coyoteTimer = Math.max(0, this.coyoteTimer - dt);
+    this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
+    this.landTimer = Math.max(0, this.landTimer - dt);
+    this.hitAnimTimer = Math.max(0, this.hitAnimTimer - dt);
+    const wasOnGround = this.onGround;
 
     if (this.reloadTimer > 0) {
       this.reloadTimer -= dt;
@@ -104,18 +135,43 @@ export class Player {
       this.facing = moveDir;
     }
 
+    if (jumpPressed) {
+      this.jumpBuffer = JUMP.bufferTime;
+    }
+
+    this.wallSliding = false;
+    if (!this.onGround && this.vy > 0) {
+      const pressingIntoLeftWall = this.touchingLeft && left;
+      const pressingIntoRightWall = this.touchingRight && right;
+      if (pressingIntoLeftWall || pressingIntoRightWall) {
+        this.wallSliding = true;
+      }
+    }
+
     if (jumpPressed && down && this.onPlatform) {
       this.dropThroughTimer = 0.18;
-    } else if (jumpPressed) {
-      if (this.onGround) {
+      this.jumpBuffer = 0;
+    } else if (this.jumpBuffer > 0) {
+      if (this.onGround || this.coyoteTimer > 0) {
         this.vy = -JUMP.speed;
         this.jumpHold = 0;
+        this.jumpBuffer = 0;
+        this.coyoteTimer = 0;
+        this.onGround = false;
       } else {
-        const wallDir = this.touchingLeft ? -1 : this.touchingRight ? 1 : 0;
+        const wallDir = this.wallSliding
+          ? this.touchingLeft
+            ? -1
+            : this.touchingRight
+              ? 1
+              : 0
+          : 0;
         if (wallDir !== 0) {
           this.vy = -JUMP.speed;
           this.vx = -wallDir * JUMP.wallKickX;
           this.jumpHold = 0;
+          this.jumpBuffer = 0;
+          this.wallSliding = false;
         }
       }
     }
@@ -138,11 +194,16 @@ export class Player {
       this.vx = this.dashDir * DASH.speed;
       this.vy = 0;
     } else {
-      const accel = this.onGround ? MOVE.accel : MOVE.airAccel;
+      const onWetGround = this.onGround && this.surfaceType === "wet";
+      const accel = this.onGround
+        ? MOVE.accel * (onWetGround ? WET_MOVE.accelMultiplier : 1)
+        : MOVE.airAccel;
       if (moveDir !== 0) {
         this.vx += moveDir * accel * dt;
       } else {
-        const friction = this.onGround ? MOVE.friction : MOVE.airFriction;
+        const friction = this.onGround
+          ? MOVE.friction * (onWetGround ? WET_MOVE.frictionMultiplier : 1)
+          : MOVE.airFriction;
         if (this.vx > 0) {
           this.vx = Math.max(0, this.vx - friction * dt);
         } else if (this.vx < 0) {
@@ -150,14 +211,24 @@ export class Player {
         }
       }
 
-      this.vx = clamp(this.vx, -MOVE.maxSpeed, MOVE.maxSpeed);
+      const maxSpeed = this.onGround
+        ? MOVE.maxSpeed * (onWetGround ? WET_MOVE.maxSpeedMultiplier : 1)
+        : MOVE.maxSpeed;
+      this.vx = clamp(this.vx, -maxSpeed, maxSpeed);
 
       if (jumpHeld && this.vy < 0 && this.jumpHold < JUMP.holdTime) {
         this.vy -= JUMP.holdBoost * dt;
         this.jumpHold += dt;
       }
 
-      this.vy += CONFIG.gravity * dt;
+      if (this.wallSliding) {
+        this.vy = Math.min(
+          JUMP.wallSlideSpeed,
+          this.vy + CONFIG.gravity * dt * 0.3
+        );
+      } else {
+        this.vy += CONFIG.gravity * dt;
+      }
     }
 
     if (shootPressed && this.shootTimer <= 0) {
@@ -175,9 +246,51 @@ export class Player {
 
     level.moveEntity(this, dt, true);
 
+    if (!wasOnGround && this.onGround) {
+      this.landTimer = 0.1;
+    }
+
     if (this.onGround) {
       this.airDashAvailable = true;
+      this.coyoteTimer = JUMP.coyoteTime;
+      if (this.jumpBuffer > 0 && !down) {
+        this.vy = -JUMP.speed;
+        this.jumpHold = 0;
+        this.jumpBuffer = 0;
+        this.coyoteTimer = 0;
+        this.onGround = false;
+      }
     }
+
+    this.updateState();
+  }
+
+  setState(nextState) {
+    setEntityState(this, nextState);
+  }
+
+  updateState() {
+    if (this.hp <= 0) {
+      this.setState(ENTITY_STATES.DEAD);
+      return;
+    }
+    if (this.hurtTimer > 0) {
+      this.setState(ENTITY_STATES.STUNNED);
+      return;
+    }
+    if (this.shootTimer > 0) {
+      this.setState(ENTITY_STATES.ATTACK);
+      return;
+    }
+    if (!this.onGround) {
+      this.setState(ENTITY_STATES.JUMP);
+      return;
+    }
+    if (this.dashTime > 0 || Math.abs(this.vx) > 24) {
+      this.setState(ENTITY_STATES.RUN);
+      return;
+    }
+    this.setState(ENTITY_STATES.IDLE);
   }
 }
 
@@ -213,11 +326,29 @@ export class Enemy {
     this.patrolInterval = options.patrolInterval || 2;
     this.patrolTimer = this.patrolInterval;
     this.flashTimer = 0;
+    this.state = ENTITY_STATES.IDLE;
+    this.stateTime = 0;
+    this.animationFrame = 0;
+    this.animationTimer = 0;
+    this.deathTimer = 0;
+    this.deathDuration = 0.35;
+    this.remove = false;
   }
 
   update(dt, game, level) {
+    this.stateTime += dt;
     this.shootTimer = Math.max(0, this.shootTimer - dt);
     this.shootCooldown = Math.max(0, this.shootCooldown - dt);
+    if (this.state === ENTITY_STATES.DEAD || this.hp <= 0) {
+      this.vx = 0;
+      this.stunTimer = 0;
+      this.attackTimer = 0;
+      this.lungeTimer = 0;
+      this.deathTimer = Math.max(0, this.deathTimer - dt);
+      this.remove = this.deathTimer <= 0;
+      this.setState(ENTITY_STATES.DEAD);
+      return;
+    }
     if (this.stunTimer > 0) {
       this.stunTimer = Math.max(0, this.stunTimer - dt);
       this.vx = 0;
@@ -240,6 +371,43 @@ export class Enemy {
     if (this.vx !== 0) {
       this.facing = Math.sign(this.vx);
     }
+    this.updateState();
+  }
+
+  setState(nextState) {
+    setEntityState(this, nextState);
+  }
+
+  markDead(duration = 0.35) {
+    this.hp = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.stunTimer = 0;
+    this.attackTimer = 0;
+    this.lungeTimer = 0;
+    this.deathDuration = duration;
+    this.deathTimer = Math.max(this.deathTimer, duration);
+    this.setState(ENTITY_STATES.DEAD);
+  }
+
+  updateState() {
+    if (this.state === ENTITY_STATES.DEAD || this.hp <= 0) {
+      this.setState(ENTITY_STATES.DEAD);
+      return;
+    }
+    if (this.stunTimer > 0) {
+      this.setState(ENTITY_STATES.STUNNED);
+      return;
+    }
+    if (this.shootTimer > 0 || this.attackTimer > 0 || this.lungeTimer > 0) {
+      this.setState(ENTITY_STATES.ATTACK);
+      return;
+    }
+    if (Math.abs(this.vx) > 10) {
+      this.setState(ENTITY_STATES.RUN);
+      return;
+    }
+    this.setState(ENTITY_STATES.IDLE);
   }
 
   updateSnake(dt, game) {
@@ -298,6 +466,9 @@ export class Enemy {
       this.cooldown = 1.2;
       this.lungeDir = Math.sign(dx) || this.patrolDir;
       this.vx = this.lungeDir * 180;
+      if (game.sfx && game.sfx.bulldog) {
+        game.sfx.bulldog.play();
+      }
       return;
     }
 
@@ -370,6 +541,9 @@ export class Enemy {
         this.vy = -280;
         this.attackTimer = 0.22;
         this.attackCooldown = 0.7;
+        if (game.sfx && game.sfx.ninja) {
+          game.sfx.ninja.play();
+        }
         return;
       }
       this.vx = Math.sign(dx) * chaseSpeed;
@@ -380,6 +554,9 @@ export class Enemy {
           this.vy = -320;
           this.vx = Math.sign(dx) * 200;
           this.cooldown = 0.6;
+          if (game.sfx && game.sfx.ninja) {
+            game.sfx.ninja.play();
+          }
         }
       }
     } else {
@@ -472,4 +649,12 @@ function getEnemySize(type) {
     default:
       return { w: 12, h: 10 };
   }
+}
+
+function setEntityState(entity, nextState) {
+  if (entity.state === nextState) return;
+  entity.state = nextState;
+  entity.stateTime = 0;
+  entity.animationFrame = 0;
+  entity.animationTimer = 0;
 }

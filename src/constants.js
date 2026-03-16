@@ -13,6 +13,9 @@ export const CONFIG = {
   minCoinsToExit: 8,
   cameraLookAhead: 70,
   cameraLerp: 0.12,
+  hitStopDuration: 0.04,
+  tripleShotDuration: 12,
+  healthPickupHeal: 2,
 };
 
 export const PELLETS = [

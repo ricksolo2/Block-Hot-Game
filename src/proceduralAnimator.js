@@ -1,3 +1,5 @@
+import { BOSS_STATES } from "./entities.js?v=13";
+
 const TAU = Math.PI * 2;
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -232,13 +234,118 @@ export class ProceduralAnimator {
       };
     }
 
-    const idleWave = this.wave(2.5);
+    const idleWave = this.wave(2);
     return {
       offsetX: 0,
-      offsetY: idleWave * 1,
+      offsetY: idleWave * 0.5,
       scaleX: 1,
-      scaleY: 1 + idleWave * 0.01,
+      scaleY: 1,
       rotation: 0,
     };
+  }
+
+  getBossTransform(boss, targetX = null) {
+    if (!boss) return DEFAULT_TRANSFORM;
+
+    const chargeDir =
+      Math.sign((targetX ?? boss.x) - (boss.x + boss.w / 2)) || boss.facing || -1;
+
+    switch (boss.state) {
+      case BOSS_STATES.CHARGE:
+        return {
+          offsetX: 0,
+          offsetY: boss.chargeActive ? 0 : this.wave(6) * 0.5,
+          scaleX: boss.chargeActive ? 1.15 : 1.05,
+          scaleY: boss.chargeActive ? 0.92 : 0.98,
+          rotation: chargeDir * (15 * DEG_TO_RAD),
+        };
+      case BOSS_STATES.GROUND_POUND:
+        if (!boss.groundPoundJumped) {
+          return {
+            offsetX: 0,
+            offsetY: 0,
+            scaleX: 1.06,
+            scaleY: 0.9,
+            rotation: 0,
+          };
+        }
+        if (!boss.onGround || boss.vy < 0) {
+          return {
+            offsetX: 0,
+            offsetY: 0,
+            scaleX: 0.9,
+            scaleY: 1.1,
+            rotation: clamp((boss.vx || 0) / 240, -1, 1) * (6 * DEG_TO_RAD),
+          };
+        }
+        return {
+          offsetX: 0,
+          offsetY: 1,
+          scaleX: 1.2,
+          scaleY: 0.8,
+          rotation: 0,
+        };
+      case BOSS_STATES.STUNNED:
+        return {
+          offsetX: 0,
+          offsetY: 0,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: this.wave(12) * (3 * DEG_TO_RAD),
+        };
+      case BOSS_STATES.TRANSITION:
+        return {
+          offsetX: 0,
+          offsetY: this.wave(3) * 0.5,
+          scaleX: 1.03,
+          scaleY: 1.03,
+          rotation: this.wave(6) * (1.5 * DEG_TO_RAD),
+        };
+      case BOSS_STATES.DEFEATED: {
+        const pulse = this.wave(10);
+        return {
+          offsetX: 0,
+          offsetY: 0,
+          scaleX: 1 + pulse * 0.04,
+          scaleY: 1 - pulse * 0.04,
+          rotation: pulse * (2 * DEG_TO_RAD),
+        };
+      }
+      case BOSS_STATES.WALK: {
+        const stomp = Math.abs(this.wave(4));
+        return {
+          offsetX: 0,
+          offsetY: -stomp * 2,
+          scaleX: 1 + stomp * 0.04,
+          scaleY: 1 - stomp * 0.03,
+          rotation: this.wave(4) * (2 * DEG_TO_RAD),
+        };
+      }
+      case BOSS_STATES.SWIPE:
+        return {
+          offsetX: 0,
+          offsetY: 0,
+          scaleX: 1.04,
+          scaleY: 0.98,
+          rotation: (boss.facing || -1) * (8 * DEG_TO_RAD),
+        };
+      case BOSS_STATES.SHOOT:
+        return {
+          offsetX: (boss.facing || -1) * -1,
+          offsetY: 0,
+          scaleX: 1.02,
+          scaleY: 0.98,
+          rotation: (boss.facing || -1) * (6 * DEG_TO_RAD),
+        };
+      case BOSS_STATES.IDLE:
+      default:
+        return {
+          offsetX: 0,
+          offsetY: this.wave(2) * 1,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+        };
+    }
   }
 }

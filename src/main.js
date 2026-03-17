@@ -1,4 +1,4 @@
-import { Game } from "./game.js?v=11";
+import { Game } from "./game.js?v=17";
 import {
   ENTITY_STATES,
   createClip,
@@ -7,7 +7,7 @@ import {
   splitSpriteSheet,
 } from "./animation.js?v=4";
 import { Input } from "./input.js?v=5";
-import { loadLevel } from "./level.js?v=6";
+import { loadLevel } from "./level.js?v=7";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d", { alpha: false });
@@ -26,28 +26,34 @@ async function bootstrap() {
     level1,
     level2,
     level3,
+    level4,
     background1,
     background2,
     background3Primary,
     background3Alt,
     background3Fallback,
+    background4,
     menuImage,
     playerAnimations,
     enemyAnimations,
+    bossAnimations,
     tileSprites,
     powerUpSprites,
   ] = await Promise.all([
     loadLevel(resolveUrl("../levels/level1.json")),
     loadLevel(resolveUrl("../levels/level2.json")),
     loadLevel(resolveUrl("../levels/level3.json")),
+    loadLevel(resolveUrl("../levels/level4.json")),
     loadImage("../assets/background.png"),
     loadImage("../assets/Level 2 background .png"),
     loadImage("../assets/Level 3 Background .png"),
     loadImage("../assets/Level 3 background .png"),
     loadImage("../assets/O-Block Background.png"),
+    loadImage("../assets/level 4 background.png"),
     loadImage("../assets/Loading Screen.png"),
     loadPlayerAnimations(),
     loadEnemyAnimations(),
+    loadBossAnimations(),
     loadTileSprites(),
     loadPowerUpSprites(),
   ]);
@@ -63,13 +69,19 @@ async function bootstrap() {
         background2 ||
         background1,
     },
+    {
+      level: level4,
+      background: background4 || background3Primary || background2 || background1,
+    },
   ];
   const spriteScale = playerAnimations?.baseHeight
     ? 28 / playerAnimations.baseHeight
     : 1;
   const enemyScales = buildEnemyScales(enemyAnimations);
+  const bossScale = bossAnimations?.baseHeight ? 42 / bossAnimations.baseHeight : 1;
 
   const music = createMusic("../audio/2012 Drill x Lofi Hype.mp3", 0.3);
+  const bossMusic = createMusic("../audio/Boss Level Drill (Take 2).mp3", 0.38);
   const sfx = {
     gun: createSfx("../audio/GUNPis-Generate_a_20-second-Elevenlabs.mp3", {
       volume: 1,
@@ -107,6 +119,22 @@ async function bootstrap() {
       volume: 0.8,
       poolSize: 4,
     }),
+    bossLaugh: createSfx("../audio/Boss Laugh sound.mp3", {
+      volume: 0.9,
+      poolSize: 2,
+    }),
+    bossDrop: createSfx("../audio/Boss Drop impact sound.mp3", {
+      volume: 0.95,
+      poolSize: 2,
+    }),
+    bossGun: createSfx("../audio/Boss Gun shooting sound.mp3", {
+      volume: 0.95,
+      poolSize: 5,
+    }),
+    bossHurt: createSfx("../audio/Boss Injured sound.mp3", {
+      volume: 0.9,
+      poolSize: 4,
+    }),
   };
   const audioState = {
     volume: 0.6,
@@ -114,7 +142,7 @@ async function bootstrap() {
     lastVolume: 0.6,
     step: 0.1,
   };
-  applyAudioState(music, sfx, audioState);
+  applyAudioState(music, sfx, audioState, [bossMusic]);
 
   const game = new Game(canvas, ctx, input, levels[0].level, {
     levels,
@@ -124,18 +152,21 @@ async function bootstrap() {
     spriteScale,
     enemyAnimations,
     enemyScales,
+    bossAnimations,
+    bossScale,
     powerUpSprites,
     tileSprites,
     sfx,
   });
   game.music = music;
+  game.bossMusic = bossMusic;
   game.audioState = audioState;
 
   loadingEl.style.display = "none";
   game.start();
   window.addEventListener("resize", () => game.resize());
   setupAudioStart(music, sfx);
-  setupAudioControls(music, sfx, audioState);
+  setupAudioControls(music, sfx, audioState, [bossMusic]);
 }
 
 function loadImage(path) {
@@ -399,6 +430,10 @@ async function loadEnemyAnimations() {
     splitFrames(ninjaBottomStrip, 3)
   );
   const ninjaIdleFrames = mergeFrames(splitFrames(ninjaBottomStrip, 3));
+  const ninjaIdleFrame =
+    ninjaIdleFrames.at(1) ||
+    ninjaIdleFrames[0] ||
+    createFrame(ninja);
 
   const bulldogRunFrames = mergeFrames(
     splitFrames(bulldogMoveTopStrip, 2),
@@ -455,9 +490,7 @@ async function loadEnemyAnimations() {
   return {
     ninja: {
       [ENTITY_STATES.IDLE]: createClip(
-        ninjaIdleFrames.length > 0
-          ? ninjaIdleFrames
-          : mergeFrames(createFrame(ninja)),
+        mergeFrames(ninjaIdleFrame),
         { frameDuration: 0.18 }
       ),
       [ENTITY_STATES.RUN]: createClip(
@@ -536,14 +569,17 @@ async function loadEnemyAnimations() {
       [ENTITY_STATES.ATTACK]: clipFromSprites(normalizedSwat.attackRight, {
         frameDuration: 0.08,
         loop: false,
+        facing: 1,
       }),
       attackLeft: clipFromSprites(normalizedSwat.attackLeft, {
         frameDuration: 0.08,
         loop: false,
+        facing: -1,
       }),
       attackRight: clipFromSprites(normalizedSwat.attackRight, {
         frameDuration: 0.08,
         loop: false,
+        facing: 1,
       }),
       [ENTITY_STATES.STUNNED]: createDirectionalClips(
         normalizedSwat.stunnedRight,
@@ -623,6 +659,179 @@ async function loadPowerUpSprites() {
 
   if (!gun && !health) return null;
   return { gun, health };
+}
+
+async function loadBossAnimations() {
+  const [
+    idlePrimary,
+    idleRight,
+    idleLeft,
+    walkCenter,
+    walkRightA,
+    walkRightB,
+    walkLeftA,
+    chargeLeftA,
+    chargeLeftB,
+    swipeLeft,
+    swipeRight,
+    shootLeft,
+    shootRight,
+    gunLeft,
+    gunRight,
+  ] = await Promise.all([
+    loadSprite("../assets/Boss Twan .png"),
+    loadSprite("../assets/Boss_Enforcer.png"),
+    loadSprite("../assets/Boss Twan - facing left.jpg"),
+    loadSprite("../assets/Boss Twan - walking.jpg"),
+    loadSprite("../assets/Boss Twan walking - right.jpg"),
+    loadSprite("../assets/Boss Twan walking -  right (2).jpg"),
+    loadSprite("../assets/Boss Twan walking -left.jpg"),
+    loadSprite("../assets/Boss Twan - charging left (1).jpg"),
+    loadSprite("../assets/Boss Twan - charging left (2).jpg"),
+    loadSprite("../assets/Boss Twan punching - left .jpg"),
+    loadSprite("../assets/Boss Twan punching - right.jpg"),
+    loadSprite("../assets/Boss Twan - shooting left.png"),
+    loadSprite("../assets/Boss Twan - shooting right.png"),
+    loadSprite("../assets/Boss Twan - with gun.png"),
+    loadSprite("../assets/boss Twan - with gun - right.png"),
+  ]);
+
+  const resolvedIdleRight =
+    idlePrimary || idleRight || gunRight || shootRight || gunLeft || null;
+  const resolvedIdleLeft = idleLeft || gunLeft || shootLeft || flipSprite(resolvedIdleRight);
+  const resolvedWalkCenter =
+    walkCenter || resolvedIdleRight || resolvedIdleLeft || gunRight || gunLeft || null;
+  const resolvedWalkRightA = walkRightA || resolvedWalkCenter || resolvedIdleRight;
+  const resolvedWalkRightB =
+    walkRightB || flipSprite(walkLeftA) || resolvedWalkRightA || resolvedWalkCenter;
+  const resolvedWalkLeftA =
+    walkLeftA || flipSprite(resolvedWalkRightA) || resolvedWalkCenter || resolvedIdleLeft;
+  const resolvedWalkLeftB =
+    flipSprite(resolvedWalkRightB) ||
+    flipSprite(resolvedWalkRightA) ||
+    resolvedWalkLeftA ||
+    resolvedWalkCenter;
+  const resolvedSwipeLeft = swipeLeft || resolvedIdleLeft || resolvedIdleRight;
+  const resolvedSwipeRight =
+    swipeRight || flipSprite(resolvedSwipeLeft) || gunRight || shootRight || resolvedIdleRight;
+  const resolvedChargeLeftA = chargeLeftA || resolvedIdleLeft || resolvedSwipeLeft;
+  const resolvedChargeLeftB = chargeLeftB || resolvedChargeLeftA || resolvedIdleLeft;
+  const resolvedChargeRightA =
+    flipSprite(resolvedChargeLeftA) || shootRight || gunRight || resolvedIdleRight;
+  const resolvedChargeRightB =
+    flipSprite(resolvedChargeLeftB) || resolvedChargeRightA || resolvedIdleRight;
+  const resolvedChargeRight = resolvedChargeRightA;
+  const resolvedChargeLeft =
+    shootLeft || gunLeft || resolvedChargeLeftA || flipSprite(resolvedChargeRight) || resolvedIdleLeft;
+  const walkRightFrames = [
+    resolvedWalkCenter || resolvedWalkRightA,
+    resolvedWalkRightA,
+    resolvedWalkRightB,
+    resolvedWalkRightA,
+  ].filter(Boolean);
+  const walkLeftFrames = [
+    flipSprite(resolvedWalkCenter) || resolvedWalkLeftA,
+    resolvedWalkLeftA,
+    resolvedWalkLeftB,
+    resolvedWalkLeftA,
+  ].filter(Boolean);
+  const groundPoundRightFrames = [
+    resolvedWalkCenter || resolvedIdleRight || resolvedChargeRightA || resolvedSwipeRight,
+  ].filter(Boolean);
+  const groundPoundLeftFrames = [
+    flipSprite(resolvedWalkCenter) || resolvedIdleLeft || resolvedChargeLeftA || resolvedSwipeLeft,
+  ].filter(Boolean);
+
+  if (!resolvedIdleRight && !resolvedIdleLeft && !resolvedSwipeLeft) {
+    return null;
+  }
+
+  const referenceHeight =
+    resolvedIdleRight?.height ||
+    resolvedWalkCenter?.height ||
+    resolvedWalkRightA?.height ||
+    resolvedIdleLeft?.height ||
+    resolvedSwipeLeft?.height ||
+    1;
+  const normalized = normalizeSpriteGroups({
+    idleRight: matchSpritesToHeight([resolvedIdleRight].filter(Boolean), referenceHeight),
+    idleLeft: matchSpritesToHeight([resolvedIdleLeft].filter(Boolean), referenceHeight),
+    walkRight: matchSpritesToHeight(walkRightFrames, referenceHeight),
+    walkLeft: matchSpritesToHeight(walkLeftFrames, referenceHeight),
+    groundPoundRight: matchSpritesToHeight(groundPoundRightFrames, referenceHeight),
+    groundPoundLeft: matchSpritesToHeight(groundPoundLeftFrames, referenceHeight),
+    swipeRight: matchSpritesToHeight(
+      [resolvedSwipeRight || resolvedIdleRight].filter(Boolean),
+      referenceHeight
+    ),
+    swipeLeft: matchSpritesToHeight(
+      [resolvedSwipeLeft || resolvedIdleLeft].filter(Boolean),
+      referenceHeight
+    ),
+    chargeRight: matchSpritesToHeight(
+      [resolvedChargeRightA, resolvedChargeRightB, resolvedIdleRight].filter(Boolean),
+      referenceHeight
+    ),
+    chargeLeft: matchSpritesToHeight(
+      [resolvedChargeLeftA, resolvedChargeLeftB, resolvedIdleLeft].filter(Boolean),
+      referenceHeight
+    ),
+    shootRight: matchSpritesToHeight(
+      [gunRight || resolvedIdleRight, shootRight || gunRight || resolvedIdleRight].filter(Boolean),
+      referenceHeight
+    ),
+    shootLeft: matchSpritesToHeight(
+      [gunLeft || resolvedIdleLeft, shootLeft || gunLeft || resolvedIdleLeft].filter(Boolean),
+      referenceHeight
+    ),
+    stunnedRight: matchSpritesToHeight([resolvedIdleRight].filter(Boolean), referenceHeight),
+    stunnedLeft: matchSpritesToHeight([resolvedIdleLeft].filter(Boolean), referenceHeight),
+    transitionRight: matchSpritesToHeight([resolvedChargeRight].filter(Boolean), referenceHeight),
+    transitionLeft: matchSpritesToHeight([resolvedChargeLeft].filter(Boolean), referenceHeight),
+    defeatedRight: matchSpritesToHeight([resolvedIdleRight].filter(Boolean), referenceHeight),
+    defeatedLeft: matchSpritesToHeight([resolvedIdleLeft].filter(Boolean), referenceHeight),
+  });
+
+  return {
+    idle: createDirectionalClips(normalized.idleRight, normalized.idleLeft, {
+      frameDuration: 0.18,
+    }),
+    walk: createDirectionalClips(normalized.walkRight, normalized.walkLeft, {
+      frameDuration: 0.11,
+    }),
+    ground_pound: createDirectionalClips(
+      normalized.groundPoundRight,
+      normalized.groundPoundLeft,
+      { frameDuration: 0.14, loop: false }
+    ),
+    charge: createDirectionalClips(normalized.chargeRight, normalized.chargeLeft, {
+      frameDuration: 0.1,
+      loop: false,
+    }),
+    swipe: createDirectionalClips(normalized.swipeRight, normalized.swipeLeft, {
+      frameDuration: 0.1,
+      loop: false,
+    }),
+    shoot: createDirectionalClips(normalized.shootRight, normalized.shootLeft, {
+      frameDuration: 0.1,
+      loop: false,
+    }),
+    stunned: createDirectionalClips(normalized.stunnedRight, normalized.stunnedLeft, {
+      frameDuration: 0.12,
+      loop: false,
+    }),
+    transition: createDirectionalClips(
+      normalized.transitionRight,
+      normalized.transitionLeft,
+      { frameDuration: 0.12 }
+    ),
+    defeated: createDirectionalClips(
+      normalized.defeatedRight,
+      normalized.defeatedLeft,
+      { frameDuration: 0.16, loop: false }
+    ),
+    baseHeight: normalized.baseHeight,
+  };
 }
 
 function buildEnemyScales(animationSets) {
@@ -930,11 +1139,11 @@ function resolveUrl(path) {
   return new URL(encodePath(path), import.meta.url).href;
 }
 
-function applyAudioState(music, sfx, state) {
+function applyAudioState(music, sfx, state, extraMusic = []) {
   const volume = state.muted ? 0 : state.volume;
-  if (music) {
-    music.volume = volume * (music.baseVolume ?? 1);
-  }
+  [music, ...extraMusic].filter(Boolean).forEach((track) => {
+    track.volume = volume * (track.baseVolume ?? 1);
+  });
   if (sfx) {
     Object.values(sfx).forEach((sound) => sound.setVolume(volume));
   }
@@ -960,10 +1169,10 @@ function setupAudioStart(audio, sfx) {
   window.addEventListener("touchstart", start, { once: true });
 }
 
-function setupAudioControls(music, sfx, state) {
+function setupAudioControls(music, sfx, state, extraMusic = []) {
   if (!music && !sfx) return;
   const clampVolume = (value) => Math.max(0, Math.min(1, value));
-  const apply = () => applyAudioState(music, sfx, state);
+  const apply = () => applyAudioState(music, sfx, state, extraMusic);
 
   const setVolume = (value) => {
     state.volume = clampVolume(value);

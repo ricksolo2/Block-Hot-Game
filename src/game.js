@@ -15,11 +15,13 @@ import {
 import {
   Player,
   Enemy,
+  Boss,
   Projectile,
   EnemyProjectile,
-} from "./entities.js?v=8";
-import { ProceduralAnimator } from "./proceduralAnimator.js?v=4";
-import { drawHud } from "./ui.js?v=6";
+  BOSS_STATES,
+} from "./entities.js?v=13";
+import { ProceduralAnimator } from "./proceduralAnimator.js?v=8";
+import { drawHud } from "./ui.js?v=7";
 
 export class Game {
   constructor(canvas, ctx, input, level, options = {}) {
@@ -40,6 +42,8 @@ export class Game {
     this.spriteScale = options.spriteScale || 1;
     this.enemyAnimations = options.enemyAnimations || null;
     this.enemyScales = options.enemyScales || null;
+    this.bossAnimations = options.bossAnimations || null;
+    this.bossScale = options.bossScale || 1;
     this.powerUpSprites = options.powerUpSprites || null;
     this.tileSprites = options.tileSprites || null;
     this.sfx = options.sfx || null;
@@ -60,6 +64,21 @@ export class Game {
     this.enemies = [];
     this.projectiles = [];
     this.enemyProjectiles = [];
+    this.boss = null;
+    this.bossVisible = false;
+    this.bossActive = false;
+    this.bossCutsceneTriggered = false;
+    this.cutsceneTimer = 0;
+    this.cutsceneCameraStartX = 0;
+    this.cutsceneCameraTargetX = 0;
+    this.bossDisplayHp = 0;
+    this.bossHpFlashTimer = 0;
+    this.bossDefeatActive = false;
+    this.bossDefeatTimer = 0;
+    this.bossCoinRainStarted = false;
+    this.bossCoinRainTimer = 0;
+    this.bossExplosionStep = -1;
+    this.screenFlashAlpha = 0;
     this.heatPoints = 0;
     this.heatStars = 0;
     this.combo = 1;
@@ -82,6 +101,7 @@ export class Game {
       dir: 1,
     };
 
+    this.setupBoss();
     this.spawnInitialEnemies();
     this.resize();
   }
@@ -121,12 +141,7 @@ export class Game {
   spawnInitialEnemies() {
     this.enemies = [];
     for (const spawn of this.level.snakeSpawns) {
-      this.enemies.push(
-        new Enemy("snake", spawn.x, spawn.y, {
-          ambush: !!spawn.ambush,
-          patrolRange: spawn.patrolRange || 40,
-        })
-      );
+      this.enemies.push(this.createSnake(spawn));
     }
     for (const spawn of this.level.bulldogSpawns) {
       this.enemies.push(this.createBulldog(spawn));
@@ -150,6 +165,14 @@ export class Game {
     });
   }
 
+  createSnake(spawn) {
+    return new Enemy("snake", spawn.x, spawn.y, {
+      hp: spawn.hp || 1,
+      ambush: !!spawn.ambush,
+      patrolRange: spawn.patrolRange || 40,
+    });
+  }
+
   createNinja(spawn) {
     const type = spawn.type || "ninja";
     return new Enemy(type, spawn.x, spawn.y, {
@@ -170,6 +193,163 @@ export class Game {
       hp: 3,
       patrolRange: spawn.patrolRange || 96,
     });
+  }
+
+  setupBoss() {
+    const bossData = this.level?.boss;
+    if (!bossData) {
+      this.boss = null;
+      this.bossVisible = false;
+      this.bossActive = false;
+      this.bossCutsceneTriggered = false;
+      this.cutsceneTimer = 0;
+      this.bossDisplayHp = 0;
+      this.bossHpFlashTimer = 0;
+      this.bossDefeatActive = false;
+      this.bossDefeatTimer = 0;
+      this.bossCoinRainStarted = false;
+      this.bossCoinRainTimer = 0;
+      this.bossExplosionStep = -1;
+      this.screenFlashAlpha = 0;
+      return;
+    }
+
+    this.boss = new Boss(bossData.x, bossData.y, {
+      type: bossData.type,
+      hp: bossData.hp,
+      maxHp: bossData.hp,
+    });
+    this.bossVisible = false;
+    this.bossActive = false;
+    this.bossCutsceneTriggered = false;
+    this.cutsceneTimer = 0;
+    this.cutsceneCameraStartX = 0;
+    this.cutsceneCameraTargetX = 0;
+    this.bossDisplayHp = this.boss.hp;
+    this.bossHpFlashTimer = 0;
+    this.bossDefeatActive = false;
+    this.bossDefeatTimer = 0;
+    this.bossCoinRainStarted = false;
+    this.bossCoinRainTimer = 0;
+    this.bossExplosionStep = -1;
+    this.screenFlashAlpha = 0;
+  }
+
+  getEnemySpacingBias(
+    enemy,
+    groupTypes,
+    radius = 32,
+    yTolerance = 24,
+    maxPush = 56
+  ) {
+    if (!enemy || !groupTypes || groupTypes.length === 0) return 0;
+
+    let push = 0;
+    const enemyCenterX = enemy.x + enemy.w / 2;
+    const enemyCenterY = enemy.y + enemy.h / 2;
+
+    for (const other of this.enemies) {
+      if (
+        other === enemy ||
+        other.remove ||
+        other.state === ENTITY_STATES.DEAD ||
+        !groupTypes.includes(other.type)
+      ) {
+        continue;
+      }
+
+      const dx = enemyCenterX - (other.x + other.w / 2);
+      const dy = Math.abs(enemyCenterY - (other.y + other.h / 2));
+      const distX = Math.abs(dx);
+      if (distX <= 0 || distX >= radius || dy > yTolerance) continue;
+
+      const strength = (1 - distX / radius) * maxPush;
+      push += Math.sign(dx || enemy.facing || 1) * strength;
+    }
+
+    return clamp(push, -maxPush, maxPush);
+  }
+
+  isEnemyCrowded(enemy, groupTypes, radius = 24, yTolerance = 20) {
+    if (!enemy || !groupTypes || groupTypes.length === 0) return false;
+
+    const enemyCenterX = enemy.x + enemy.w / 2;
+    const enemyCenterY = enemy.y + enemy.h / 2;
+
+    for (const other of this.enemies) {
+      if (
+        other === enemy ||
+        other.remove ||
+        other.state === ENTITY_STATES.DEAD ||
+        !groupTypes.includes(other.type)
+      ) {
+        continue;
+      }
+
+      const dx = Math.abs(enemyCenterX - (other.x + other.w / 2));
+      const dy = Math.abs(enemyCenterY - (other.y + other.h / 2));
+      if (dx < radius && dy < yTolerance) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  selectEnemySpawn(spawns, groupTypes, options = {}) {
+    if (!spawns || spawns.length === 0) return null;
+
+    const minPlayerDistance = options.minPlayerDistance ?? 96;
+    const minEnemyDistance = options.minEnemyDistance ?? 84;
+    const playerCenterX = this.player.x + this.player.w / 2;
+    const playerCenterY = this.player.y + this.player.h / 2;
+
+    let best = null;
+    let bestScore = -Infinity;
+    let fallback = null;
+    let fallbackScore = -Infinity;
+
+    for (const spawn of spawns) {
+      const spawnCenterX = spawn.x + 6;
+      const spawnCenterY = spawn.y + 8;
+      const playerDistance = Math.hypot(
+        spawnCenterX - playerCenterX,
+        spawnCenterY - playerCenterY
+      );
+
+      let nearestEnemyDistance = Infinity;
+      for (const enemy of this.enemies) {
+        if (
+          enemy.remove ||
+          enemy.state === ENTITY_STATES.DEAD ||
+          !groupTypes.includes(enemy.type)
+        ) {
+          continue;
+        }
+
+        const distance = Math.hypot(
+          spawnCenterX - (enemy.x + enemy.w / 2),
+          spawnCenterY - (enemy.y + enemy.h / 2)
+        );
+        nearestEnemyDistance = Math.min(nearestEnemyDistance, distance);
+      }
+
+      const score =
+        Math.min(nearestEnemyDistance, minEnemyDistance * 1.5) +
+        playerDistance * 0.35;
+
+      if (playerDistance >= minPlayerDistance && nearestEnemyDistance >= minEnemyDistance) {
+        if (score > bestScore) {
+          best = spawn;
+          bestScore = score;
+        }
+      } else if (score > fallbackScore) {
+        fallback = spawn;
+        fallbackScore = score;
+      }
+    }
+
+    return best || fallback || randItem(spawns);
   }
 
   update(dt) {
@@ -240,7 +420,21 @@ export class Game {
       return;
     }
 
+    if (this.state === "cutscene") {
+      this.updateCutscene(dt);
+      this.input.clearPressed();
+      return;
+    }
+
+    if (this.state === "bossfight" && this.bossDefeatActive) {
+      this.updateBossDefeatSequence(dt);
+      this.input.clearPressed();
+      return;
+    }
+
     this.safehouseCooldown = Math.max(0, this.safehouseCooldown - dt);
+    this.bossHpFlashTimer = Math.max(0, this.bossHpFlashTimer - dt);
+    this.screenFlashAlpha = Math.max(0, this.screenFlashAlpha - dt * 1.8);
 
     if (this.input.wasPressed("KeyP")) {
       this.state = "paused";
@@ -279,6 +473,14 @@ export class Game {
     }
     this.enemies = this.enemies.filter((enemy) => !enemy.remove);
 
+    if (this.boss && this.bossVisible && this.bossActive) {
+      this.storePreviousPosition(this.boss);
+      this.boss.update(dt, this, this.level);
+      this.containBossToArena();
+      stepAnimation(this.boss, dt, this.bossAnimations);
+      this.updateBossPresentation(this.boss, dt);
+    }
+
     for (const projectile of this.projectiles) {
       projectile.update(dt, this.level);
     }
@@ -300,8 +502,13 @@ export class Game {
     this.handleCoins();
     this.handlePickups();
     this.handleSafehouses();
+    if (this.state === "playing" && this.maybeStartBossCutscene()) {
+      this.input.clearPressed();
+      return;
+    }
     this.handleExit();
     this.updateEnemySpawns(dt);
+    this.updateBossHud(dt);
 
     if (this.comboTimer > 0) {
       this.comboTimer = Math.max(0, this.comboTimer - dt);
@@ -319,7 +526,16 @@ export class Game {
   updateCamera() {
     const levelWidth = this.level.width * this.level.tileSize;
     const levelHeight = this.level.height * this.level.tileSize;
-    const maxX = Math.max(0, levelWidth - CONFIG.width);
+    let minX = 0;
+    let maxX = Math.max(0, levelWidth - CONFIG.width);
+    if ((this.state === "bossfight" || this.bossCutsceneTriggered) && this.level.bossArena?.w) {
+      minX = clamp(this.level.bossArena.x, 0, maxX);
+      maxX = clamp(
+        this.level.bossArena.x + this.level.bossArena.w - CONFIG.width,
+        minX,
+        maxX
+      );
+    }
     const maxY = Math.max(0, levelHeight - CONFIG.height);
     const lookAhead = clamp(
       this.player.vx * 0.35,
@@ -328,7 +544,7 @@ export class Game {
     );
     const targetX = clamp(
       this.player.x + this.player.w / 2 + lookAhead - CONFIG.width / 2,
-      0,
+      minX,
       maxX
     );
     const targetY = clamp(
@@ -401,6 +617,402 @@ export class Game {
       life: 0.14,
       size: 1.2,
     });
+  }
+
+  updateBossPresentation(boss, dt) {
+    if (!boss) return;
+    if (
+      boss.state === BOSS_STATES.CHARGE &&
+      boss.chargeActive &&
+      Math.abs(boss.vx) > 200 &&
+      boss.onGround
+    ) {
+      this.spawnParticles(boss.x + boss.w / 2, boss.y + boss.h - 2, {
+        color: "#6f5c50",
+        count: 2,
+        minSpeed: 20,
+        maxSpeed: 60,
+        life: 0.18,
+        size: 1.8,
+      });
+    }
+  }
+
+  containBossToArena() {
+    if (!this.boss || !this.level?.bossArena) return;
+
+    const arena = this.level.bossArena;
+    const minX = arena.x + 2;
+    const maxX = arena.x + arena.w - this.boss.w - 2;
+    const floorY = (this.level.height - 1) * this.level.tileSize - this.boss.h;
+
+    if (this.boss.x < minX) {
+      this.boss.x = minX;
+      this.boss.vx = Math.max(0, this.boss.vx);
+      this.boss.touchingLeft = true;
+      if (this.boss.state === BOSS_STATES.CHARGE && this.boss.chargeActive) {
+        this.boss.finishCharge(this);
+      }
+    } else if (this.boss.x > maxX) {
+      this.boss.x = maxX;
+      this.boss.vx = Math.min(0, this.boss.vx);
+      this.boss.touchingRight = true;
+      if (this.boss.state === BOSS_STATES.CHARGE && this.boss.chargeActive) {
+        this.boss.finishCharge(this);
+      }
+    }
+
+    if (this.boss.y > floorY) {
+      this.boss.y = floorY;
+      this.boss.vy = 0;
+      this.boss.onGround = true;
+    }
+  }
+
+  updateBossHud(dt) {
+    if (!this.boss || !this.bossVisible) return;
+    const target = Math.max(0, this.boss.hp);
+    const smooth = clamp(dt / 0.3, 0, 1);
+    this.bossDisplayHp += (target - this.bossDisplayHp) * smooth;
+    if (Math.abs(this.bossDisplayHp - target) < 0.02) {
+      this.bossDisplayHp = target;
+    }
+  }
+
+  maybeStartBossCutscene() {
+    if (
+      !this.level?.boss ||
+      this.bossCutsceneTriggered ||
+      !this.boss ||
+      this.state !== "playing"
+    ) {
+      return false;
+    }
+
+    const triggerX = this.level.boss.triggerX || this.level.boss.x;
+    const playerCenterX = this.player.x + this.player.w / 2;
+    if (playerCenterX < triggerX) {
+      return false;
+    }
+
+    this.startBossCutscene();
+    return true;
+  }
+
+  startBossCutscene() {
+    if (!this.boss || !this.level?.bossArena) return;
+
+    const arena = this.level.bossArena;
+    const groundTop = (this.level.height - 1) * this.level.tileSize;
+    this.state = "cutscene";
+    this.bossCutsceneTriggered = true;
+    this.bossVisible = true;
+    this.bossActive = false;
+    this.cutsceneTimer = 0;
+    this.projectiles = [];
+    this.enemyProjectiles = [];
+    this.enemies = [];
+    this.bust.active = false;
+    this.hitStop.reset();
+    this.stopMusic();
+    if (this.sfx?.bossLaugh) {
+      this.sfx.bossLaugh.play();
+    }
+
+    this.player.x = arena.x + 28;
+    this.player.y = groundTop - this.player.h;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.facing = 1;
+    this.player.setState(ENTITY_STATES.IDLE);
+    this.resetPlayerPresentation();
+
+    this.boss.x = this.level.boss.x;
+    this.boss.y = groundTop - this.boss.h;
+    this.boss.facing = -1;
+    this.bossVisible = true;
+    this.boss.beginIntroDrop(this.boss.y - 180);
+
+    const levelWidth = this.level.width * this.level.tileSize;
+    this.cutsceneCameraStartX = clamp(
+      arena.x - 56,
+      0,
+      Math.max(0, levelWidth - CONFIG.width)
+    );
+    this.cutsceneCameraTargetX = clamp(
+      arena.x + arena.w / 2 - CONFIG.width / 2,
+      0,
+      Math.max(0, levelWidth - CONFIG.width)
+    );
+    this.camera.x = this.cutsceneCameraStartX;
+    this.camera.y = clamp(
+      groundTop - CONFIG.height + 56,
+      0,
+      Math.max(0, this.level.height * this.level.tileSize - CONFIG.height)
+    );
+  }
+
+  updateCutscene(dt) {
+    this.cutsceneTimer += dt;
+    this.animator.update(dt);
+    this.updateParticles(dt);
+    this.floatingText.update(dt);
+    this.updateBossHud(dt);
+
+    const t = this.cutsceneTimer;
+    if (t < 2) {
+      this.camera.x = this.cutsceneCameraStartX;
+    } else if (t < 4) {
+      const ratio = clamp((t - 2) / 2, 0, 1);
+      this.camera.x =
+        this.cutsceneCameraStartX +
+        (this.cutsceneCameraTargetX - this.cutsceneCameraStartX) * ratio;
+    } else {
+      this.camera.x = this.cutsceneCameraTargetX;
+    }
+
+    if (t >= 4 && this.boss && this.boss.introDropping) {
+      if (this.boss.updateIntroDrop(dt, this.level)) {
+        this.containBossToArena();
+        this.addShake(4, 0.2);
+        this.spawnParticles(this.boss.x + this.boss.w / 2, this.boss.y + this.boss.h, {
+          color: "#8f836f",
+          count: 20,
+          minSpeed: 40,
+          maxSpeed: 140,
+          life: 0.36,
+          size: 2.4,
+        });
+        if (this.sfx?.bossDrop) {
+          this.sfx.bossDrop.play();
+        }
+      }
+    }
+
+    if (this.boss && this.bossVisible) {
+      stepAnimation(this.boss, dt, this.bossAnimations);
+    }
+
+    if (t >= 8) {
+      this.startBossFight();
+    }
+  }
+
+  startBossFight() {
+    if (!this.boss) return;
+    this.state = "bossfight";
+    this.bossActive = true;
+    this.bossVisible = true;
+    this.boss.introActive = false;
+    this.boss.walkTimer = 1.2;
+    this.boss.setState(BOSS_STATES.IDLE);
+    this.player.invuln = 0.35;
+    this.resumeMusic();
+    this.updateCamera();
+  }
+
+  onBossGroundPoundLand(boss) {
+    const waveY = boss.y + boss.h - 6;
+    this.enemyProjectiles.push(
+      new EnemyProjectile(boss.x - 2, waveY, -150, 0, {
+        w: 12,
+        h: 6,
+        life: 1.7,
+        damage: 2,
+        color: "#ffb55c",
+        style: "shockwave",
+      })
+    );
+    this.enemyProjectiles.push(
+      new EnemyProjectile(boss.x + boss.w - 10, waveY, 150, 0, {
+        w: 12,
+        h: 6,
+        life: 1.7,
+        damage: 2,
+        color: "#ffb55c",
+        style: "shockwave",
+      })
+    );
+    this.addShake(4, 0.18);
+    this.spawnParticles(boss.x + boss.w / 2, boss.y + boss.h, {
+      color: "#c6b07d",
+      count: 18,
+      minSpeed: 35,
+      maxSpeed: 150,
+      life: 0.3,
+      size: 2.2,
+    });
+  }
+
+  onBossChargeImpact(boss) {
+    this.addShake(4.5, 0.22);
+    this.spawnParticles(
+      boss.x + (boss.touchingLeft ? 2 : boss.w - 2),
+      boss.y + boss.h / 2,
+      {
+        color: "#c9b7a0",
+        count: 16,
+        minSpeed: 40,
+        maxSpeed: 150,
+        life: 0.32,
+        size: 2.1,
+      }
+    );
+  }
+
+  spawnBossPhaseSnakes() {
+    if (!this.level?.bossArena) return;
+    const groundTop = (this.level.height - 1) * this.level.tileSize;
+    this.enemies.push(
+      this.createSnake({
+        x: this.level.bossArena.x + 20,
+        y: groundTop - 10,
+        patrolRange: 28,
+        ambush: false,
+      })
+    );
+    this.enemies.push(
+      this.createSnake({
+        x: this.level.bossArena.x + this.level.bossArena.w - 36,
+        y: groundTop - 10,
+        patrolRange: 28,
+        ambush: false,
+      })
+    );
+    this.floatingText.add(
+      "SNAKES INBOUND",
+      this.level.bossArena.x + this.level.bossArena.w / 2,
+      this.camera.y + 40,
+      "#95ff86",
+      10,
+      1
+    );
+  }
+
+  destroyBossArenaPlatforms() {
+    if (!this.level?.phase3DestroyZones?.length) return;
+    for (const zone of this.level.phase3DestroyZones) {
+      this.spawnParticles(zone.x + zone.w / 2, zone.y + zone.h / 2, {
+        color: "#ff8c61",
+        count: 14,
+        minSpeed: 30,
+        maxSpeed: 120,
+        life: 0.3,
+        size: 2.2,
+      });
+    }
+    this.level.destroyPhase3Platforms();
+    this.addShake(5, 0.28);
+    this.screenFlashAlpha = Math.max(this.screenFlashAlpha, 0.4);
+    this.floatingText.add(
+      "ARENA BREAK!",
+      this.camera.x + CONFIG.width / 2,
+      this.camera.y + 48,
+      "#ff9f7f",
+      12,
+      1.1
+    );
+  }
+
+  startBossDefeat() {
+    if (!this.boss || this.bossDefeatActive) return;
+    this.bossDefeatActive = true;
+    this.bossDefeatTimer = 0;
+    this.bossCoinRainStarted = false;
+    this.bossCoinRainTimer = 0;
+    this.bossExplosionStep = -1;
+    this.boss.markDefeated();
+    this.bossActive = false;
+    this.enemies = [];
+    this.projectiles = [];
+    this.enemyProjectiles = [];
+    this.screenFlashAlpha = Math.max(this.screenFlashAlpha, 0.2);
+  }
+
+  updateBossDefeatSequence(dt) {
+    this.bossDefeatTimer += dt;
+    this.animator.update(dt);
+    const t = this.bossDefeatTimer;
+    this.screenFlashAlpha = Math.max(
+      0,
+      this.screenFlashAlpha - dt * (t >= 2 ? 2.8 : 1.2)
+    );
+
+    if (t >= 0.3) {
+      this.updateParticles(dt);
+      this.floatingText.update(dt);
+      this.updateBossHud(dt);
+    }
+
+    if (t >= 0.3 && t < 2) {
+      const step = Math.floor((t - 0.3) / 0.2);
+      if (step !== this.bossExplosionStep) {
+        this.bossExplosionStep = step;
+        const burstX = this.boss.x + 4 + Math.random() * Math.max(4, this.boss.w - 8);
+        const burstY = this.boss.y + 4 + Math.random() * Math.max(6, this.boss.h - 8);
+        this.spawnParticles(burstX, burstY, {
+          color: "#ffb067",
+          count: 10,
+          minSpeed: 20,
+          maxSpeed: 100,
+          life: 0.24,
+          size: 1.8,
+        });
+        this.addShake(1.3, 0.06);
+        this.boss.flashTimer = 0.08;
+      }
+    }
+
+    if (t >= 2 && t - dt < 2) {
+      this.spawnParticles(this.boss.x + this.boss.w / 2, this.boss.y + this.boss.h / 2, {
+        color: "#ffd8a6",
+        count: 30,
+        minSpeed: 45,
+        maxSpeed: 180,
+        life: 0.45,
+        size: 2.8,
+      });
+      this.addShake(6, 0.24);
+      this.screenFlashAlpha = 1;
+    }
+
+    if (t >= 2) {
+      const fade = clamp((t - 2) / 0.5, 0, 1);
+      this.boss.alpha = 1 - fade;
+    }
+
+    if (t >= 4.5 && t < 6) {
+      this.bossCoinRainTimer -= dt;
+      if (this.bossCoinRainTimer <= 0) {
+        this.bossCoinRainTimer = 0.08;
+        const coinX = this.camera.x + 20 + Math.random() * (CONFIG.width - 40);
+        this.particles.push({
+          x: coinX,
+          y: this.camera.y - 6,
+          vx: (Math.random() * 2 - 1) * 18,
+          vy: 40 + Math.random() * 45,
+          life: 1.2,
+          maxLife: 1.2,
+          size: 2.4,
+          color: "#f2d64b",
+        });
+      }
+    }
+
+    this.updateCamera();
+
+    if (t >= 6) {
+      this.levelComplete = true;
+      this.state = "complete";
+      this.completeStats = {
+        coins: this.coinCount,
+        swatKills: this.swatKills,
+        requiredSwatKills: this.level.requiredSwatKills || 0,
+        score: this.score,
+        level: this.levelIndex + 1,
+      };
+      this.stopMusic();
+    }
   }
 
   storePreviousPosition(entity) {
@@ -525,12 +1137,52 @@ export class Game {
     }
   }
 
+  spawnBossProjectile(boss) {
+    const dir = boss.facing || -1;
+    const speed = boss.phase === 3 ? 280 : 240;
+    const damage = boss.phase === 3 ? 2 : 1;
+    const x = boss.x + boss.w / 2 + dir * (boss.w / 2 + 3);
+    const y = boss.y + boss.h * 0.35;
+    this.enemyProjectiles.push(
+      new EnemyProjectile(x, y, speed * dir, 0, {
+        w: 7,
+        h: 4,
+        life: 1.6,
+        damage,
+        color: "#ffbd82",
+        style: "bossBullet",
+      })
+    );
+    this.spawnParticles(x + dir * 4, y, {
+      color: "#ffb36e",
+      count: 8,
+      minSpeed: 26,
+      maxSpeed: 88,
+      life: 0.22,
+      size: 1.5,
+    });
+    if (this.sfx?.bossGun) {
+      this.sfx.bossGun.play();
+    } else if (this.sfx?.gun) {
+      this.sfx.gun.play();
+    }
+  }
+
   handleProjectileHits() {
     for (const projectile of this.projectiles) {
       if (projectile.dead) continue;
       const barrier = this.findBarrierHit(projectile);
       if (barrier) {
         this.applyBarrierHit(barrier, projectile);
+        continue;
+      }
+      if (
+        this.boss &&
+        this.bossVisible &&
+        this.boss.state !== BOSS_STATES.DEFEATED &&
+        rectsOverlap(projectile, this.boss)
+      ) {
+        this.applyProjectileHit(this.boss, projectile);
         continue;
       }
       for (const enemy of this.enemies) {
@@ -553,6 +1205,46 @@ export class Game {
   }
 
   applyProjectileHit(enemy, projectile) {
+    if (enemy instanceof Boss) {
+      if (enemy.state === BOSS_STATES.DEFEATED) {
+        projectile.dead = true;
+        return;
+      }
+
+      const pellet = projectile.pellet;
+      const damage = enemy.applyDamage(pellet, Math.sign(projectile.vx) || 1);
+      this.bossHpFlashTimer = 0.14;
+      this.hitStop.trigger(CONFIG.hitStopDuration * 0.8);
+      this.floatingText.add(
+        `-${damage}`,
+        enemy.x + enemy.w / 2,
+        enemy.y - 10,
+        pellet.color,
+        10,
+        0.7
+      );
+      this.spawnParticles(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, {
+        color: "#ffffff",
+        count: 10,
+        minSpeed: 45,
+        maxSpeed: 135,
+        life: 0.22,
+      });
+      if (this.sfx?.bossHurt) {
+        this.sfx.bossHurt.play();
+      }
+      if (enemy.hp <= 0) {
+        this.startBossDefeat();
+      }
+
+      if (projectile.pierce > 0) {
+        projectile.pierce -= 1;
+      } else {
+        projectile.dead = true;
+      }
+      return;
+    }
+
     if (enemy.remove || enemy.state === ENTITY_STATES.DEAD) {
       projectile.dead = true;
       return;
@@ -719,6 +1411,23 @@ export class Game {
 
   handlePlayerEnemyCollision() {
     if (this.bust.active || this.player.invuln > 0) return;
+
+    if (
+      this.boss &&
+      this.bossVisible &&
+      this.boss.state !== BOSS_STATES.DEFEATED &&
+      rectsOverlap(this.player, this.boss)
+    ) {
+      const dir = this.player.x < this.boss.x ? -1 : 1;
+      this.damagePlayer(this.boss.getContactDamage(), dir, {
+        knockbackX:
+          this.boss.state === BOSS_STATES.CHARGE && this.boss.chargeActive ? 260 : 180,
+        knockbackY: -210,
+        source: "boss",
+      });
+      return;
+    }
+
     for (const enemy of this.enemies) {
       if (enemy.remove || enemy.state === ENTITY_STATES.DEAD) continue;
       if (rectsOverlap(this.player, enemy)) {
@@ -909,6 +1618,12 @@ export class Game {
   }
 
   handleExit() {
+    if (
+      this.level?.boss &&
+      (!this.boss || this.boss.state !== BOSS_STATES.DEFEATED || this.state === "bossfight")
+    ) {
+      return;
+    }
     const requiredCoins =
       this.level.minCoinsToExit ?? CONFIG.minCoinsToExit;
     const requiredSwatKills = this.level.requiredSwatKills || 0;
@@ -938,6 +1653,15 @@ export class Game {
   }
 
   updateEnemySpawns(dt) {
+    if (
+      !this.level.allowDynamicSpawns ||
+      this.state === "bossfight" ||
+      this.state === "cutscene" ||
+      this.bossCutsceneTriggered
+    ) {
+      return;
+    }
+
     const activeCops = this.enemies.filter(
       (enemy) =>
         !enemy.remove &&
@@ -961,7 +1685,10 @@ export class Game {
     this.copSpawnTimer -= dt;
     if (this.copSpawnTimer <= 0) {
       if (activeCops < targetCops) {
-        const spawn = randItem(this.level.copSpawns);
+        const spawn = this.selectEnemySpawn(this.level.copSpawns, ["cop", "swat"], {
+          minPlayerDistance: 110,
+          minEnemyDistance: 92,
+        });
         if (spawn) {
           this.enemies.push(this.createCop(spawn));
         }
@@ -972,7 +1699,14 @@ export class Game {
     this.ninjaSpawnTimer -= dt;
     if (this.ninjaSpawnTimer <= 0) {
       if (activeNinjas < targetNinjas) {
-        const spawn = randItem(this.level.ninjaSpawns);
+        const spawn = this.selectEnemySpawn(
+          this.level.ninjaSpawns,
+          ["ninja", "redNinja", "blueNinja"],
+          {
+            minPlayerDistance: 96,
+            minEnemyDistance: 80,
+          }
+        );
         if (spawn) {
           this.enemies.push(this.createNinja(spawn));
         }
@@ -1019,13 +1753,16 @@ export class Game {
     this.comboTimer = this.comboMaxTime;
   }
 
-  damagePlayer(amount, knockbackDir) {
+  damagePlayer(amount, knockbackDir, options = {}) {
+    const knockbackX = options.knockbackX || 160;
+    const knockbackY = options.knockbackY || -200;
+    const invuln = options.invuln || 1.0;
     this.player.hp -= amount;
-    this.player.invuln = 1.0;
+    this.player.invuln = invuln;
     this.player.hurtTimer = 0.36;
     this.player.hitAnimTimer = 0.15;
-    this.player.vx = 160 * knockbackDir;
-    this.player.vy = -200;
+    this.player.vx = knockbackX * knockbackDir;
+    this.player.vy = knockbackY;
     this.hitStop.trigger(CONFIG.hitStopDuration);
     this.floatingText.add(
       `-${amount}`,
@@ -1114,6 +1851,7 @@ export class Game {
     this.levelIndex = index;
     this.level = levelData.level;
     this.background = levelData.background || this.background;
+    this.setupBoss();
   }
 
   advanceLevel() {
@@ -1148,6 +1886,7 @@ export class Game {
     this.particles = [];
     this.hitStop.reset();
     this.floatingText.clear();
+    this.setupBoss();
 
     for (const coin of this.level.coins) {
       coin.collected = false;
@@ -1182,9 +1921,34 @@ export class Game {
       this.music.pause();
       this.music.currentTime = 0;
     }
+    if (this.bossMusic && !this.bossMusic.paused) {
+      this.bossMusic.pause();
+      this.bossMusic.currentTime = 0;
+    }
   }
 
   resumeMusic() {
+    const shouldUseBossMusic = !!(
+      this.level?.boss &&
+      (this.state === "bossfight" || this.bossDefeatActive)
+    );
+
+    if (shouldUseBossMusic) {
+      if (this.music && !this.music.paused) {
+        this.music.pause();
+        this.music.currentTime = 0;
+      }
+      if (this.bossMusic && this.bossMusic.paused) {
+        this.bossMusic.currentTime = 0;
+        this.bossMusic.play().catch(() => {});
+      }
+      return;
+    }
+
+    if (this.bossMusic && !this.bossMusic.paused) {
+      this.bossMusic.pause();
+      this.bossMusic.currentTime = 0;
+    }
     if (this.music && this.music.paused) {
       this.music.play().catch(() => {});
     }
@@ -1242,6 +2006,12 @@ export class Game {
   }
 
   isExitReady() {
+    if (
+      this.level?.boss &&
+      (!this.boss || this.boss.state !== BOSS_STATES.DEFEATED || this.bossDefeatActive)
+    ) {
+      return false;
+    }
     const requiredCoins = this.level.minCoinsToExit ?? CONFIG.minCoinsToExit;
     const requiredSwatKills = this.level.requiredSwatKills || 0;
     return this.coinCount >= requiredCoins && this.swatKills >= requiredSwatKills;
@@ -1269,11 +2039,13 @@ export class Game {
     this.drawEnemyProjectiles(ctx);
     this.drawParticles(ctx);
     this.drawEnemies(ctx);
+    this.drawBoss(ctx);
     this.drawPlayer(ctx);
     this.floatingText.draw(ctx);
 
     ctx.restore();
     ctx.restore();
+    this.drawScreenFlash(ctx);
     if (this.bust.active) {
       this.drawBustLights(ctx);
     }
@@ -1458,8 +2230,20 @@ export class Game {
   }
 
   drawEnemyProjectiles(ctx) {
-    ctx.fillStyle = "#ff8a8a";
     for (const projectile of this.enemyProjectiles) {
+      ctx.fillStyle = projectile.color || "#ff8a8a";
+      if (projectile.style === "shockwave") {
+        ctx.fillRect(projectile.x, projectile.y + 2, projectile.w, projectile.h - 2);
+        ctx.fillStyle = "#ffd6a4";
+        ctx.fillRect(projectile.x + 1, projectile.y, projectile.w - 2, 2);
+        continue;
+      }
+      if (projectile.style === "bossBullet") {
+        ctx.fillRect(projectile.x, projectile.y, projectile.w, projectile.h);
+        ctx.fillStyle = "#fff2cf";
+        ctx.fillRect(projectile.x + 1, projectile.y + 1, projectile.w - 2, 1);
+        continue;
+      }
       ctx.fillRect(projectile.x, projectile.y, projectile.w, projectile.h);
     }
   }
@@ -1527,6 +2311,96 @@ export class Game {
           ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
         }
       }
+    }
+  }
+
+  drawBoss(ctx) {
+    if (!this.boss || !this.bossVisible) return;
+
+    const clip = getAnimationClip(this.boss, this.bossAnimations);
+    const frame = getAnimationFrame(this.boss, this.bossAnimations);
+    const transform = this.animator.getBossTransform(
+      this.boss,
+      this.player.x + this.player.w / 2
+    );
+    const alpha = this.boss.alpha ?? 1;
+
+    if (!frame || !frame.image) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(this.boss.x + this.boss.w / 2, this.boss.y + this.boss.h / 2);
+      ctx.rotate(transform.rotation || 0);
+      ctx.scale(transform.scaleX || 1, transform.scaleY || 1);
+      ctx.fillStyle = this.boss.flashTimer > 0 ? "#ffffff" : "#1d1d1d";
+      ctx.fillRect(-this.boss.w / 2, -this.boss.h / 2, this.boss.w, this.boss.h);
+      ctx.restore();
+      return;
+    }
+
+    const drawW = frame.sw * this.bossScale;
+    const drawH = frame.sh * this.bossScale;
+    const drawX = this.boss.x + this.boss.w / 2 - drawW / 2;
+    const drawY = this.boss.y + this.boss.h - drawH;
+    const centerX = Math.round(drawX + drawW / 2 + (transform.offsetX || 0));
+    const centerY = Math.round(drawY + drawH / 2 + (transform.offsetY || 0));
+    const desiredFacing = this.boss.facing < 0 ? -1 : 1;
+    const sourceFacing = clip?.facing || 1;
+    const flip = sourceFacing !== desiredFacing;
+    const flash = this.boss.flashTimer > 0;
+
+    if (this.boss.state === BOSS_STATES.CHARGE && this.boss.chargeActive) {
+      this.drawTransformedAnimationFrame(
+        ctx,
+        frame,
+        centerX - this.boss.facing * 10,
+        centerY,
+        drawW,
+        drawH,
+        flip,
+        transform,
+        false,
+        alpha * 0.3
+      );
+      this.drawTransformedAnimationFrame(
+        ctx,
+        frame,
+        centerX - this.boss.facing * 20,
+        centerY,
+        drawW,
+        drawH,
+        flip,
+        transform,
+        false,
+        alpha * 0.15
+      );
+    }
+
+    this.drawTransformedAnimationFrame(
+      ctx,
+      frame,
+      centerX,
+      centerY,
+      drawW,
+      drawH,
+      flip,
+      transform,
+      flash,
+      alpha
+    );
+
+    if (this.boss.phase === 3 && this.boss.state !== BOSS_STATES.DEFEATED) {
+      this.drawTintedAnimationFrame(
+        ctx,
+        frame,
+        centerX,
+        centerY,
+        drawW,
+        drawH,
+        flip,
+        transform,
+        "rgba(255, 0, 0, 0.15)",
+        alpha
+      );
     }
   }
 
@@ -1619,12 +2493,12 @@ export class Game {
 
   getEnemyAnimationPresentation(enemy) {
     const animationSet = this.getEnemyAnimationSet(enemy);
+    const clip = getAnimationClip(enemy, animationSet);
     const frame = getAnimationFrame(enemy, animationSet);
     if (!frame) return null;
-    const flip =
-      enemy.type === "swat" && enemy.state === ENTITY_STATES.ATTACK
-        ? false
-        : (enemy.facing || (enemy.vx < 0 ? -1 : 1)) < 0;
+    const desiredFacing = enemy.facing < 0 ? -1 : 1;
+    const sourceFacing = clip?.facing || 1;
+    const flip = sourceFacing !== desiredFacing;
     return { frame, flip };
   }
 
@@ -1640,8 +2514,8 @@ export class Game {
       enemy,
       this.player.x + this.player.w / 2
     );
-    const centerX = drawX + drawW / 2 + (transform.offsetX || 0);
-    const centerY = drawY + drawH / 2 + (transform.offsetY || 0);
+    const centerX = Math.round(drawX + drawW / 2 + (transform.offsetX || 0));
+    const centerY = Math.round(drawY + drawH / 2 + (transform.offsetY || 0));
     const shadowScale = Math.max(0, (transform.scaleX + transform.scaleY) * 0.5);
 
     if (enemy.type === "snake" || enemy.type === "bulldog") {
@@ -1749,6 +2623,50 @@ export class Game {
       ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
       ctx.fillRect(-drawW / 2, -drawH / 2, drawW, drawH);
     }
+    ctx.restore();
+  }
+
+  drawTintedAnimationFrame(
+    ctx,
+    frame,
+    anchorX,
+    anchorY,
+    drawW,
+    drawH,
+    flip,
+    transform,
+    color,
+    alpha = 1
+  ) {
+    if (!frame || !frame.image) return;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(anchorX, anchorY);
+    ctx.rotate(transform.rotation || 0);
+    ctx.scale((flip ? -1 : 1) * (transform.scaleX || 1), transform.scaleY || 1);
+    ctx.drawImage(
+      frame.image,
+      frame.sx,
+      frame.sy,
+      frame.sw,
+      frame.sh,
+      -drawW / 2,
+      -drawH / 2,
+      drawW,
+      drawH
+    );
+    ctx.globalCompositeOperation = "source-atop";
+    ctx.fillStyle = color;
+    ctx.fillRect(-drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+  }
+
+  drawScreenFlash(ctx) {
+    if (this.screenFlashAlpha <= 0) return;
+    ctx.save();
+    ctx.fillStyle = `rgba(255, 255, 255, ${clamp(this.screenFlashAlpha, 0, 1)})`;
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
     ctx.restore();
   }
 

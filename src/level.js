@@ -50,6 +50,7 @@ export class Level {
     this.exit = resolveRect(data.exit, this.tileSize);
     this.minCoinsToExit = data.minCoinsToExit ?? CONFIG.minCoinsToExit;
     this.requiredSwatKills = data.requiredSwatKills || 0;
+    this.allowDynamicSpawns = data.allowDynamicSpawns ?? !data.boss;
     this.barriers = (data.barriers || []).map((barrier) =>
       resolveBarrier(barrier, this.tileSize)
     );
@@ -58,6 +59,11 @@ export class Level {
     );
     this.pickups = (data.pickups || []).map((pickup) =>
       resolvePickup(pickup, this.tileSize)
+    );
+    this.boss = resolveBoss(data.boss, this.tileSize);
+    this.bossArena = resolveRect(data.bossArena, this.tileSize);
+    this.phase3DestroyZones = (data.phase3DestroyZones || []).map((rect) =>
+      resolveRect(rect, this.tileSize)
     );
   }
 
@@ -210,6 +216,32 @@ export class Level {
     }
   }
 
+  clearTilesInRect(rect, replacement = 0) {
+    if (!rect || !rect.w || !rect.h) return;
+    const startX = Math.max(0, Math.floor(rect.x / this.tileSize));
+    const endX = Math.min(
+      this.width - 1,
+      Math.floor((rect.x + rect.w - 1) / this.tileSize)
+    );
+    const startY = Math.max(0, Math.floor(rect.y / this.tileSize));
+    const endY = Math.min(
+      this.height - 1,
+      Math.floor((rect.y + rect.h - 1) / this.tileSize)
+    );
+
+    for (let ty = startY; ty <= endY; ty += 1) {
+      for (let tx = startX; tx <= endX; tx += 1) {
+        this.tiles[ty][tx] = replacement;
+      }
+    }
+  }
+
+  destroyPhase3Platforms() {
+    for (const zone of this.phase3DestroyZones || []) {
+      this.clearTilesInRect(zone, 0);
+    }
+  }
+
   draw(ctx, camera, tileset = null) {
     const startX = Math.max(0, Math.floor(camera.x / this.tileSize));
     const endX = Math.min(
@@ -343,5 +375,29 @@ function resolvePickup(pickup, tileSize) {
     x: point.x,
     y: point.y - tileSize * 0.35,
     collected: false,
+  };
+}
+
+function resolveBoss(boss, tileSize) {
+  if (!boss) return null;
+  const point = resolvePoint(boss, tileSize, false);
+  const triggerTile =
+    typeof boss.triggerTx === "number"
+      ? boss.triggerTx
+      : typeof boss.triggerX === "number"
+        ? boss.triggerX
+        : null;
+  return {
+    ...boss,
+    type: boss.type || "enforcer",
+    x: point.x,
+    y: point.y,
+    hp: boss.hp || 30,
+    triggerX:
+      triggerTile !== null
+        ? triggerTile * tileSize
+        : typeof boss.triggerX === "number"
+          ? boss.triggerX
+          : point.x,
   };
 }

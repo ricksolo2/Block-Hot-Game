@@ -37,6 +37,12 @@ export function drawHud(ctx, game) {
     return;
   }
 
+  if (game.state === "cutscene") {
+    drawCutscene(ctx, game);
+    ctx.restore();
+    return;
+  }
+
   drawHudPanels(ctx);
   drawHealth(ctx, game);
   drawHeat(ctx, game);
@@ -48,6 +54,7 @@ export function drawHud(ctx, game) {
   drawControlsBox(ctx);
   drawHints(ctx, game);
   drawBustPrompt(ctx, game);
+  drawBossHud(ctx, game);
 
   ctx.restore();
 }
@@ -72,12 +79,13 @@ function drawHealth(ctx, game) {
 }
 
 function drawHeat(ctx, game) {
+  const bossOffset = hasBossOverlay(game) ? 34 : 0;
   const stars = game.heatStars;
   const size = 8;
   const gap = 3;
   const totalWidth = CONFIG.maxHeatStars * (size + gap) - gap;
   const x = (CONFIG.width - totalWidth) / 2;
-  const y = 6;
+  const y = 6 + bossOffset;
 
   for (let i = 0; i < CONFIG.maxHeatStars; i += 1) {
     const sx = x + i * (size + gap);
@@ -106,10 +114,11 @@ function drawHeat(ctx, game) {
 }
 
 function drawCombo(ctx, game) {
+  const bossOffset = hasBossOverlay(game) ? 34 : 0;
   const text = `Combo x${game.combo}`;
   const textWidth = ctx.measureText(text).width;
   const x = (CONFIG.width - textWidth) / 2;
-  const y = 24;
+  const y = 24 + bossOffset;
 
   drawText(ctx, text, x, y, game.combo > 1 ? "#7fd8ff" : "#8a8a8a");
 
@@ -251,6 +260,145 @@ function drawBustPrompt(ctx, game) {
   const text = "BUST! Mash Z/Arrows to break free";
   const w = ctx.measureText(text).width;
   drawText(ctx, text, (CONFIG.width - w) / 2, CONFIG.height / 2 - 6, "#ffd08a");
+}
+
+function drawCutscene(ctx, game) {
+  const t = game.cutsceneTimer || 0;
+
+  if (t >= 2) {
+    const fadeIn = clamp((t - 2) / 2, 0, 1);
+    ctx.fillStyle = `rgba(148, 52, 24, ${0.14 * fadeIn})`;
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+  }
+
+  const blackAlpha = t < 2 ? 1 : 1 - clamp((t - 2) / 2, 0, 1);
+  if (blackAlpha > 0) {
+    ctx.fillStyle = `rgba(0, 0, 0, ${blackAlpha})`;
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+  }
+
+  if (t < 2.2) {
+    const fade =
+      t < 0.5 ? clamp(t / 0.5, 0, 1) : clamp((2 - t) / 0.5, 0, 1);
+    ctx.fillStyle = `rgba(255, 255, 255, ${fade})`;
+    ctx.font = "bold 22px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("END OF THE LINE.", CONFIG.width / 2, CONFIG.height / 2 - 12);
+    ctx.textAlign = "left";
+    ctx.font = "9px monospace";
+  }
+
+  if (t >= 6 && t < 7.5) {
+    drawBossNameCard(ctx, t);
+  }
+
+  if (t >= 7.5 && game.boss) {
+    drawBossHealthBar(ctx, game, clamp((t - 7.5) / 0.5, 0, 1));
+  }
+}
+
+function drawBossHud(ctx, game) {
+  if (!game.boss || !game.bossVisible) return;
+  if (game.state !== "bossfight" && !game.bossDefeatActive) return;
+
+  drawBossHealthBar(ctx, game, 1);
+
+  if (game.boss?.state === "transition") {
+    const text =
+      game.boss.phase === 2
+        ? "THE ENFORCER is getting serious..."
+        : "THE ENFORCER has entered Phase 3";
+    const width = ctx.measureText(text).width;
+    drawText(ctx, text, (CONFIG.width - width) / 2, 54, "#ffb08a");
+  }
+
+  if (game.bossDefeatActive && game.bossDefeatTimer >= 3 && game.bossDefeatTimer < 6) {
+    const text = "THE ENFORCER HAS BEEN NEUTRALIZED";
+    ctx.font = "bold 14px monospace";
+    const width = ctx.measureText(text).width;
+    drawText(ctx, text, (CONFIG.width - width) / 2, 72, "#ffe7b5");
+    ctx.font = "9px monospace";
+  }
+}
+
+function drawBossHealthBar(ctx, game, dropProgress = 1) {
+  const boss = game.boss;
+  if (!boss) return;
+
+  const width = 380;
+  const height = 16;
+  const x = (CONFIG.width - width) / 2;
+  const y = Math.round(-32 + 40 * clamp(dropProgress, 0, 1));
+  const ratio = clamp(game.bossDisplayHp / boss.maxHp, 0, 1);
+  const hpWidth = Math.round((width - 4) * ratio);
+  const lowPulse = (Math.sin(game.time * 10) + 1) * 0.5;
+  const label = "THE ENFORCER";
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+  ctx.fillRect(x - 4, y - 14, width + 8, height + 22);
+  ctx.strokeStyle = "#f0e7d4";
+  ctx.strokeRect(x - 4, y - 14, width + 8, height + 22);
+
+  ctx.font = "bold 12px monospace";
+  const labelWidth = ctx.measureText(label).width;
+  drawText(ctx, label, (CONFIG.width - labelWidth) / 2, y - 11, "#f7f1cf");
+  ctx.font = "9px monospace";
+
+  ctx.fillStyle = "#1b0a0a";
+  ctx.fillRect(x, y, width, height);
+
+  const gradient = ctx.createLinearGradient(x, y, x + width, y);
+  if (ratio > 0.66) {
+    gradient.addColorStop(0, "#7c0f16");
+    gradient.addColorStop(1, "#d73d49");
+  } else if (ratio > 0.33) {
+    gradient.addColorStop(0, "#a63c10");
+    gradient.addColorStop(1, "#f08a2a");
+  } else {
+    const pulse = 0.35 + lowPulse * 0.35;
+    gradient.addColorStop(0, `rgba(120, 10, 10, ${0.9})`);
+    gradient.addColorStop(1, `rgba(255, 60, 60, ${0.75 + pulse * 0.25})`);
+  }
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(x + 2, y + 2, hpWidth, height - 4);
+
+  if (game.bossHpFlashTimer > 0) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${clamp(game.bossHpFlashTimer / 0.14, 0, 1) * 0.6})`;
+    ctx.fillRect(x + 2, y + 2, hpWidth, height - 4);
+  }
+
+  ctx.strokeStyle = "#f0e7d4";
+  ctx.strokeRect(x, y, width, height);
+}
+
+function drawBossNameCard(ctx, time) {
+  const panelW = 250;
+  const panelH = 34;
+  const centerX = (CONFIG.width - panelW) / 2;
+  let x = centerX;
+
+  if (time < 6.3) {
+    x = CONFIG.width + 20 - clamp((time - 6) / 0.3, 0, 1) * (CONFIG.width - centerX + 20);
+  } else if (time > 7.2) {
+    x = centerX - clamp((time - 7.2) / 0.3, 0, 1) * (centerX + panelW + 20);
+  }
+
+  const y = 42;
+  ctx.fillStyle = "rgba(140, 18, 18, 0.92)";
+  ctx.fillRect(x, y, panelW, panelH);
+  ctx.strokeStyle = "#f7f1cf";
+  ctx.strokeRect(x, y, panelW, panelH);
+  ctx.font = "bold 13px monospace";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText("THE ENFORCER", x + panelW / 2, y + 11);
+  ctx.textAlign = "left";
+  ctx.font = "9px monospace";
+}
+
+function hasBossOverlay(game) {
+  return !!(game.boss && game.bossVisible && (game.state === "bossfight" || game.bossDefeatActive));
 }
 
 function drawMenu(ctx, game) {

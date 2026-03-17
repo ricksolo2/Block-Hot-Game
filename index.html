@@ -30,7 +30,7 @@
         showBootError(event.reason || "Unhandled promise rejection");
       });
 
-      import("./src/main.js?v=12").catch((error) => {
+      import("./src/main.js?v=18").catch((error) => {
         console.error("Module import failed.", error);
         showBootError(error);
       });

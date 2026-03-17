@@ -1,6 +1,6 @@
 import { ENTITY_STATES } from "./animation.js?v=4";
 import { CONFIG, PELLETS } from "./constants.js?v=6";
-import { clamp } from "./utils.js?v=5";
+import { clamp, rectsOverlap } from "./utils.js?v=5";
 
 const MOVE = {
   accel: 1600,
@@ -31,6 +31,18 @@ const DASH = {
   duration: 0.12,
   cooldown: 0.45,
 };
+
+export const BOSS_STATES = Object.freeze({
+  IDLE: "idle",
+  WALK: "walk",
+  GROUND_POUND: "ground_pound",
+  CHARGE: "charge",
+  SWIPE: "swipe",
+  SHOOT: "shoot",
+  STUNNED: "stunned",
+  TRANSITION: "transition",
+  DEFEATED: "defeated",
+});
 
 export class Player {
   constructor(x, y) {
@@ -366,9 +378,19 @@ export class Enemy {
       this.updateNinja(dt, game);
     }
 
+    if (
+      Math.abs(this.vx) < 8 &&
+      this.stunTimer <= 0 &&
+      this.attackTimer <= 0 &&
+      this.lungeTimer <= 0 &&
+      this.shootTimer <= 0
+    ) {
+      this.vx = 0;
+    }
+
     this.vy += CONFIG.gravity * dt;
     level.moveEntity(this, dt, true);
-    if (this.vx !== 0) {
+    if (Math.abs(this.vx) > 12) {
       this.facing = Math.sign(this.vx);
     }
     this.updateState();
@@ -486,11 +508,25 @@ export class Enemy {
     const dx = game.player.x - this.x;
     const dy = Math.abs(game.player.y - this.y);
     const inRange = Math.abs(dx) < 140 && dy < 48;
+    const spacingBias = game.getEnemySpacingBias(
+      this,
+      ["cop", "swat"],
+      34,
+      26,
+      54
+    );
+    const crowded = game.isEnemyCrowded(this, ["cop", "swat"], 24, 22);
 
     if (inRange) {
-      this.vx = Math.sign(dx) * chaseSpeed;
+      const desiredVx = Math.sign(dx) * chaseSpeed;
+      const packedSpeed = crowded ? chaseSpeed * 0.72 : chaseSpeed;
+      this.vx = clamp(desiredVx + spacingBias, -packedSpeed, packedSpeed);
     } else {
-      this.vx = this.patrolDir * patrolSpeed;
+      this.vx = clamp(
+        this.patrolDir * patrolSpeed + spacingBias * 0.45,
+        -patrolSpeed,
+        patrolSpeed
+      );
       if (Math.abs(this.x - this.homeX) > this.patrolRange) {
         this.patrolDir *= -1;
       }
@@ -504,7 +540,9 @@ export class Enemy {
     const patrolSpeed = 35;
 
     if (inRange) {
-      this.facing = Math.sign(dx) || this.facing;
+      if (Math.abs(dx) > 14) {
+        this.facing = Math.sign(dx) || this.facing;
+      }
       this.vx = 0;
       if (this.shootCooldown <= 0) {
         this.shootTimer = 0.22;
@@ -525,6 +563,19 @@ export class Enemy {
     const inRange = Math.abs(dx) < 160 && dy < 72;
     const chaseSpeed = 80;
     const patrolSpeed = 50;
+    const spacingBias = game.getEnemySpacingBias(
+      this,
+      ["ninja", "redNinja", "blueNinja"],
+      36,
+      28,
+      68
+    );
+    const crowded = game.isEnemyCrowded(
+      this,
+      ["ninja", "redNinja", "blueNinja"],
+      26,
+      22
+    );
 
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.attackCooldown = Math.max(0, this.attackCooldown - dt);
@@ -535,7 +586,12 @@ export class Enemy {
     }
 
     if (inRange) {
-      if (this.onGround && this.attackCooldown <= 0 && Math.abs(dx) < 110) {
+      if (
+        this.onGround &&
+        this.attackCooldown <= 0 &&
+        Math.abs(dx) < 110 &&
+        !crowded
+      ) {
         this.attackDir = Math.sign(dx) || this.patrolDir;
         this.vx = this.attackDir * 220;
         this.vy = -280;
@@ -546,11 +602,16 @@ export class Enemy {
         }
         return;
       }
-      this.vx = Math.sign(dx) * chaseSpeed;
+      const formationSpeed = crowded ? chaseSpeed * 0.72 : chaseSpeed;
+      this.vx = clamp(
+        Math.sign(dx) * chaseSpeed + spacingBias,
+        -formationSpeed,
+        formationSpeed
+      );
       if (this.onGround && this.cooldown <= 0) {
         const playerAbove = game.player.y + game.player.h < this.y - 6;
         const stuckOnWall = this.touchingLeft || this.touchingRight;
-        if (playerAbove || stuckOnWall || Math.abs(dx) < 70) {
+        if (playerAbove || stuckOnWall || (Math.abs(dx) < 70 && !crowded)) {
           this.vy = -320;
           this.vx = Math.sign(dx) * 200;
           this.cooldown = 0.6;
@@ -560,11 +621,433 @@ export class Enemy {
         }
       }
     } else {
-      this.vx = this.patrolDir * patrolSpeed;
+      this.vx = clamp(
+        this.patrolDir * patrolSpeed + spacingBias * 0.5,
+        -patrolSpeed,
+        patrolSpeed
+      );
       if (Math.abs(this.x - this.homeX) > this.patrolRange) {
         this.patrolDir *= -1;
       }
     }
+  }
+}
+
+export class Boss {
+  constructor(x, y, options = {}) {
+    this.type = options.type || "enforcer";
+    this.x = x;
+    this.y = y;
+    this.vx = 0;
+    this.vy = 0;
+    this.w = options.w || 20;
+    this.h = options.h || 28;
+    this.hp = options.hp || 30;
+    this.maxHp = options.maxHp || this.hp;
+    this.phase = 1;
+    this.contactDamage = 2;
+    this.flashTimer = 0;
+    this.stunTimer = 0;
+    this.chargeTimer = 0;
+    this.attackCooldown = 0;
+    this.chargeCooldown = 0;
+    this.facing = -1;
+    this.state = BOSS_STATES.IDLE;
+    this.stateTime = 0;
+    this.animationFrame = 0;
+    this.animationTimer = 0;
+    this.onGround = false;
+    this.touchingLeft = false;
+    this.touchingRight = false;
+    this.phaseTransitionTimer = 0;
+    this.walkTimer = 2;
+    this.actionIndex = 0;
+    this.stepTimer = 0.24;
+    this.groundPoundTelegraph = 0;
+    this.groundPoundJumped = false;
+    this.groundPoundLanded = false;
+    this.groundPoundTargetX = x;
+    this.groundPoundLandTimer = 0;
+    this.chargeTelegraph = 0;
+    this.chargeActive = false;
+    this.swipeTimer = 0;
+    this.swipeHasHit = false;
+    this.shootTimer = 0;
+    this.shootHasFired = false;
+    this.phase2AddsSpawned = false;
+    this.phase3ArenaBroken = false;
+    this.introDropping = false;
+    this.introLanded = false;
+    this.introActive = false;
+    this.alpha = 1;
+  }
+
+  update(dt, game, level) {
+    this.stateTime += dt;
+    this.flashTimer = Math.max(0, this.flashTimer - dt);
+    this.attackCooldown = Math.max(0, this.attackCooldown - dt);
+    this.chargeCooldown = Math.max(0, this.chargeCooldown - dt);
+    this.groundPoundLandTimer = Math.max(0, this.groundPoundLandTimer - dt);
+
+    if (this.state === BOSS_STATES.DEFEATED || this.hp <= 0) {
+      this.vx = 0;
+      this.vy = 0;
+      this.setState(BOSS_STATES.DEFEATED);
+      return;
+    }
+
+    const playerCenterX = game.player.x + game.player.w / 2;
+    if (!this.chargeActive && Math.abs(playerCenterX - this.x) > 4) {
+      this.facing = Math.sign(playerCenterX - (this.x + this.w / 2)) || this.facing;
+    }
+
+    const nextPhase = this.hp <= 10 ? 3 : this.hp <= 20 ? 2 : 1;
+    if (nextPhase !== this.phase && this.state !== BOSS_STATES.TRANSITION) {
+      this.beginPhaseTransition(nextPhase, game);
+    }
+
+    if (this.state === BOSS_STATES.TRANSITION) {
+      this.phaseTransitionTimer = Math.max(0, this.phaseTransitionTimer - dt);
+      this.vx = 0;
+      if (this.phaseTransitionTimer <= 0) {
+        this.walkTimer = this.phase === 3 ? 0.55 : 1.1;
+        this.setState(BOSS_STATES.IDLE);
+      }
+    } else if (this.stunTimer > 0) {
+      this.stunTimer = Math.max(0, this.stunTimer - dt);
+      this.vx = 0;
+      this.setState(BOSS_STATES.STUNNED);
+    } else {
+      switch (this.state) {
+        case BOSS_STATES.GROUND_POUND:
+          this.updateGroundPound(dt, game);
+          break;
+        case BOSS_STATES.CHARGE:
+          this.updateCharge(dt);
+          break;
+        case BOSS_STATES.SWIPE:
+          this.updateSwipe(dt, game);
+          break;
+        case BOSS_STATES.SHOOT:
+          this.updateShoot(dt, game);
+          break;
+        default:
+          this.updateNeutral(dt, game);
+          break;
+      }
+    }
+
+    this.vy += CONFIG.gravity * dt;
+    level.moveEntity(this, dt, true);
+
+    if (
+      this.state === BOSS_STATES.GROUND_POUND &&
+      this.groundPoundJumped &&
+      !this.groundPoundLanded &&
+      this.onGround
+    ) {
+      this.landGroundPound(game);
+    }
+
+    if (
+      this.state === BOSS_STATES.CHARGE &&
+      this.chargeActive &&
+      (this.touchingLeft || this.touchingRight)
+    ) {
+      this.finishCharge(game);
+    }
+
+    if (
+      this.state === BOSS_STATES.WALK &&
+      this.onGround &&
+      Math.abs(this.vx) > 1
+    ) {
+      this.stepTimer -= dt;
+      if (this.stepTimer <= 0) {
+        this.stepTimer = this.phase >= 2 ? 0.28 : 0.4;
+        game.addShake(this.phase >= 2 ? 0.8 : 0.5, 0.05);
+      }
+    }
+  }
+
+  beginIntroDrop(startY) {
+    this.introActive = true;
+    this.introDropping = true;
+    this.introLanded = false;
+    this.x = this.x;
+    this.y = startY;
+    this.vx = 0;
+    this.vy = 20;
+  }
+
+  updateIntroDrop(dt, level) {
+    if (!this.introDropping) return false;
+    this.vy += CONFIG.gravity * 1.2 * dt;
+    level.moveEntity(this, dt, true);
+    if (this.onGround) {
+      this.introDropping = false;
+      this.introLanded = true;
+      this.vx = 0;
+      this.vy = 0;
+      return true;
+    }
+    return false;
+  }
+
+  beginPhaseTransition(phase, game) {
+    this.phase = phase;
+    this.phaseTransitionTimer = 1.5;
+    this.walkTimer = this.phase === 3 ? 0.55 : 1.2;
+    this.chargeActive = false;
+    this.chargeTelegraph = 0;
+    this.groundPoundJumped = false;
+    this.groundPoundLanded = false;
+    this.swipeTimer = 0;
+    this.shootTimer = 0;
+    this.shootHasFired = false;
+    this.vx = 0;
+    this.vy = 0;
+    this.setState(BOSS_STATES.TRANSITION);
+    if (phase === 2 && !this.phase2AddsSpawned) {
+      this.phase2AddsSpawned = true;
+      game.spawnBossPhaseSnakes();
+    }
+    if (phase === 3 && !this.phase3ArenaBroken) {
+      this.phase3ArenaBroken = true;
+      game.destroyBossArenaPlatforms();
+    }
+  }
+
+  updateNeutral(dt, game) {
+    const playerCenterX = game.player.x + game.player.w / 2;
+    const playerCenterY = game.player.y + game.player.h / 2;
+    const centerX = this.x + this.w / 2;
+    const centerY = this.y + this.h / 2;
+    const dx = playerCenterX - centerX;
+    const dy = Math.abs(playerCenterY - centerY);
+    const distX = Math.abs(dx);
+
+    if (distX < 40 && dy < 42 && this.attackCooldown <= 0 && this.onGround) {
+      this.startSwipe();
+      return;
+    }
+
+    this.walkTimer = Math.max(0, this.walkTimer - dt);
+    const walkSpeed = this.getWalkSpeed();
+
+    if (
+      this.phase >= 2 &&
+      distX > 132 &&
+      dy < 88 &&
+      this.attackCooldown <= 0 &&
+      this.onGround &&
+      this.actionIndex % 3 === 2
+    ) {
+      this.actionIndex += 1;
+      this.startShoot();
+      return;
+    }
+
+    if (this.walkTimer > 0) {
+      this.vx = (Math.sign(dx) || this.facing || -1) * walkSpeed;
+      this.setState(BOSS_STATES.WALK);
+      return;
+    }
+
+    const useCharge =
+      this.phase >= 2 &&
+      this.chargeCooldown <= 0 &&
+      this.onGround &&
+      (this.phase === 3 || this.actionIndex % 2 === 1);
+
+    if (useCharge) {
+      this.actionIndex += 1;
+      this.startCharge();
+      return;
+    }
+
+    if (this.onGround && (distX <= 80 || this.phase === 3)) {
+      this.actionIndex += 1;
+      this.startGroundPound(playerCenterX);
+      return;
+    }
+
+    this.walkTimer = this.phase === 3 ? 0.55 : 1.2;
+    this.vx = (Math.sign(dx) || this.facing || -1) * walkSpeed;
+    this.setState(BOSS_STATES.WALK);
+  }
+
+  startGroundPound(targetX) {
+    this.groundPoundTelegraph = 0.3;
+    this.groundPoundJumped = false;
+    this.groundPoundLanded = false;
+    this.groundPoundTargetX = targetX;
+    this.vx = 0;
+    this.setState(BOSS_STATES.GROUND_POUND);
+  }
+
+  updateGroundPound(dt) {
+    if (!this.groundPoundJumped) {
+      this.vx = 0;
+      this.groundPoundTelegraph = Math.max(0, this.groundPoundTelegraph - dt);
+      if (this.groundPoundTelegraph <= 0) {
+        this.groundPoundJumped = true;
+        this.vy = -(this.phase >= 2 ? 400 : 300);
+        if (this.phase === 3) {
+          const dx = this.groundPoundTargetX - (this.x + this.w / 2);
+          this.vx = clamp(dx * 2.2, -220, 220);
+        }
+      }
+      return;
+    }
+
+    if (this.phase !== 3) {
+      this.vx *= 0.98;
+    }
+  }
+
+  landGroundPound(game) {
+    this.groundPoundLanded = true;
+    this.groundPoundLandTimer = 0.1;
+    this.vx = 0;
+    game.onBossGroundPoundLand(this);
+    this.stunTimer = this.phase === 1 ? 1.5 : this.phase === 2 ? 1.0 : 0.45;
+    this.attackCooldown = 0.55;
+    this.walkTimer = this.phase === 3 ? 0.45 : 0.9;
+    this.setState(BOSS_STATES.STUNNED);
+  }
+
+  startCharge() {
+    this.chargeActive = false;
+    this.chargeTelegraph = 0.5;
+    this.chargeTimer = 0;
+    this.vx = 0;
+    this.chargeCooldown = this.phase === 3 ? 1.0 : 2.1;
+    this.setState(BOSS_STATES.CHARGE);
+  }
+
+  updateCharge(dt) {
+    if (!this.chargeActive) {
+      this.vx = 0;
+      this.chargeTelegraph = Math.max(0, this.chargeTelegraph - dt);
+      if (this.chargeTelegraph <= 0) {
+        this.chargeActive = true;
+        this.chargeTimer = 0;
+      }
+      return;
+    }
+
+    this.chargeTimer += dt;
+    this.vx = (this.facing || -1) * 280;
+  }
+
+  finishCharge(game) {
+    this.chargeActive = false;
+    this.vx = 0;
+    this.stunTimer = this.phase === 3 ? 0.8 : 2.0;
+    this.attackCooldown = 0.6;
+    this.walkTimer = this.phase === 3 ? 0.35 : 0.8;
+    this.setState(BOSS_STATES.STUNNED);
+    game.onBossChargeImpact(this);
+  }
+
+  startSwipe() {
+    this.swipeTimer = 0.34;
+    this.swipeHasHit = false;
+    this.vx = 0;
+    this.attackCooldown = 0.75;
+    this.setState(BOSS_STATES.SWIPE);
+  }
+
+  updateSwipe(dt, game) {
+    this.vx = 0;
+    this.swipeTimer = Math.max(0, this.swipeTimer - dt);
+
+    if (!this.swipeHasHit && this.swipeTimer <= 0.16) {
+      this.swipeHasHit = true;
+      const hitbox = {
+        x:
+          this.facing < 0
+            ? this.x - 20
+            : this.x + this.w - 2,
+        y: this.y + 4,
+        w: 22,
+        h: this.h - 6,
+      };
+      if (
+        game.player.invuln <= 0 &&
+        !game.bust.active &&
+        rectsOverlap(game.player, hitbox)
+      ) {
+        game.damagePlayer(2, this.facing, {
+          knockbackX: 200,
+          knockbackY: -180,
+          source: "boss",
+        });
+      }
+    }
+
+    if (this.swipeTimer <= 0) {
+      this.walkTimer = this.phase === 3 ? 0.35 : 0.75;
+      this.setState(BOSS_STATES.IDLE);
+    }
+  }
+
+  startShoot() {
+    this.shootTimer = 0.34;
+    this.shootHasFired = false;
+    this.vx = 0;
+    this.attackCooldown = this.phase === 3 ? 0.9 : 1.2;
+    this.setState(BOSS_STATES.SHOOT);
+  }
+
+  updateShoot(dt, game) {
+    this.vx = 0;
+    this.shootTimer = Math.max(0, this.shootTimer - dt);
+
+    if (!this.shootHasFired && this.shootTimer <= 0.16) {
+      this.shootHasFired = true;
+      game.spawnBossProjectile(this);
+    }
+
+    if (this.shootTimer <= 0) {
+      this.walkTimer = this.phase === 3 ? 0.3 : 0.65;
+      this.setState(BOSS_STATES.IDLE);
+    }
+  }
+
+  applyDamage(pellet, direction) {
+    const multiplier = this.phase === 3 ? 2 : 1;
+    const damage = (pellet?.damage || 1) * multiplier;
+    this.hp -= damage;
+    this.flashTimer = 0.08;
+    this.vx += (direction || 1) * 36;
+    return damage;
+  }
+
+  getContactDamage() {
+    if (this.state === BOSS_STATES.CHARGE && this.chargeActive) {
+      return 3;
+    }
+    return this.contactDamage;
+  }
+
+  markDefeated() {
+    this.hp = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.stunTimer = 0;
+    this.chargeActive = false;
+    this.alpha = 1;
+    this.setState(BOSS_STATES.DEFEATED);
+  }
+
+  getWalkSpeed() {
+    return this.phase === 1 ? 50 : this.phase === 2 ? 70 : 86;
+  }
+
+  setState(nextState) {
+    setEntityState(this, nextState);
   }
 }
 
@@ -603,15 +1086,17 @@ export class Projectile {
 }
 
 export class EnemyProjectile {
-  constructor(x, y, vx, vy) {
+  constructor(x, y, vx, vy, options = {}) {
     this.x = x;
     this.y = y;
     this.vx = vx;
     this.vy = vy;
-    this.w = 5;
-    this.h = 3;
-    this.life = 1.4;
-    this.damage = 1;
+    this.w = options.w || 5;
+    this.h = options.h || 3;
+    this.life = options.life || 1.4;
+    this.damage = options.damage || 1;
+    this.color = options.color || "#ff8a8a";
+    this.style = options.style || "bullet";
     this.dead = false;
   }
 

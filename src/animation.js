@@ -47,9 +47,18 @@ export function createClip(frames, options = {}) {
 
   return {
     frames: filtered,
-    frameDuration: options.frameDuration ?? 0.12,
-    loop: options.loop ?? true,
-    facing: options.facing ?? 0,
+    frameDuration:
+      options.frameDuration !== undefined && options.frameDuration !== null
+        ? options.frameDuration
+        : 0.12,
+    loop:
+      options.loop !== undefined && options.loop !== null
+        ? options.loop
+        : true,
+    facing:
+      options.facing !== undefined && options.facing !== null
+        ? options.facing
+        : 0,
   };
 }
 
@@ -100,7 +109,7 @@ function resolveClipVariant(entity, clip) {
   if (!clip) return null;
   if (Array.isArray(clip.frames)) return clip;
 
-  const facing = entity?.facing < 0 ? -1 : 1;
+  const facing = entity && entity.facing < 0 ? -1 : 1;
   if (facing < 0 && clip.left) return clip.left;
   if (facing > 0 && clip.right) return clip.right;
   return clip.default || clip.right || clip.left || null;

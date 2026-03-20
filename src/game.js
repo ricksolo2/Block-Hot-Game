@@ -207,7 +207,7 @@ export class Game {
   }
 
   setupBoss() {
-    const bossData = this.level?.boss;
+    const bossData = this.level ? this.level.boss : null;
     if (!bossData) {
       this.boss = null;
       this.bossVisible = false;
@@ -310,8 +310,14 @@ export class Game {
   selectEnemySpawn(spawns, groupTypes, options = {}) {
     if (!spawns || spawns.length === 0) return null;
 
-    const minPlayerDistance = options.minPlayerDistance ?? 96;
-    const minEnemyDistance = options.minEnemyDistance ?? 84;
+    const minPlayerDistance =
+      options.minPlayerDistance !== undefined && options.minPlayerDistance !== null
+        ? options.minPlayerDistance
+        : 96;
+    const minEnemyDistance =
+      options.minEnemyDistance !== undefined && options.minEnemyDistance !== null
+        ? options.minEnemyDistance
+        : 84;
     const playerCenterX = this.player.x + this.player.w / 2;
     const playerCenterY = this.player.y + this.player.h / 2;
 
@@ -555,7 +561,11 @@ export class Game {
     const levelHeight = this.level.height * this.level.tileSize;
     let minX = 0;
     let maxX = Math.max(0, levelWidth - CONFIG.width);
-    if ((this.state === "bossfight" || this.bossCutsceneTriggered) && this.level.bossArena?.w) {
+    if (
+      (this.state === "bossfight" || this.bossCutsceneTriggered) &&
+      this.level.bossArena &&
+      this.level.bossArena.w
+    ) {
       minX = clamp(this.level.bossArena.x, 0, maxX);
       maxX = clamp(
         this.level.bossArena.x + this.level.bossArena.w - CONFIG.width,
@@ -631,7 +641,12 @@ export class Game {
   }
 
   updateEnemyPresentation(enemy, dt) {
-    enemy.dustTimer = Math.max(0, (enemy.dustTimer ?? 0) - dt);
+    enemy.dustTimer = Math.max(
+      0,
+      ((enemy.dustTimer !== undefined && enemy.dustTimer !== null
+        ? enemy.dustTimer
+        : 0) - dt)
+    );
     if (enemy.type !== "ninja") return;
     if (!enemy.onGround || Math.abs(enemy.vx) <= 35 || enemy.dustTimer > 0) return;
 
@@ -666,7 +681,7 @@ export class Game {
   }
 
   containBossToArena() {
-    if (!this.boss || !this.level?.bossArena) return;
+    if (!this.boss || !this.level || !this.level.bossArena) return;
 
     const arena = this.level.bossArena;
     const minX = arena.x + 2;
@@ -708,7 +723,8 @@ export class Game {
 
   maybeStartBossCutscene() {
     if (
-      !this.level?.boss ||
+      !this.level ||
+      !this.level.boss ||
       this.bossCutsceneTriggered ||
       !this.boss ||
       this.state !== "playing"
@@ -727,7 +743,7 @@ export class Game {
   }
 
   startBossCutscene() {
-    if (!this.boss || !this.level?.bossArena) return;
+    if (!this.boss || !this.level || !this.level.bossArena) return;
 
     const arena = this.level.bossArena;
     const groundTop = (this.level.height - 1) * this.level.tileSize;
@@ -742,7 +758,7 @@ export class Game {
     this.bust.active = false;
     this.hitStop.reset();
     this.stopMusic();
-    if (this.sfx?.bossLaugh) {
+    if (this.sfx && this.sfx.bossLaugh) {
       this.sfx.bossLaugh.play();
     }
 
@@ -810,7 +826,7 @@ export class Game {
           life: 0.36,
           size: 2.4,
         });
-        if (this.sfx?.bossDrop) {
+        if (this.sfx && this.sfx.bossDrop) {
           this.sfx.bossDrop.play();
         }
       }
@@ -888,7 +904,7 @@ export class Game {
   }
 
   spawnBossPhaseSnakes() {
-    if (!this.level?.bossArena) return;
+    if (!this.level || !this.level.bossArena) return;
     const groundTop = (this.level.height - 1) * this.level.tileSize;
     this.enemies.push(
       this.createSnake({
@@ -917,7 +933,13 @@ export class Game {
   }
 
   destroyBossArenaPlatforms() {
-    if (!this.level?.phase3DestroyZones?.length) return;
+    if (
+      !this.level ||
+      !this.level.phase3DestroyZones ||
+      !this.level.phase3DestroyZones.length
+    ) {
+      return;
+    }
     for (const zone of this.level.phase3DestroyZones) {
       this.spawnParticles(zone.x + zone.w / 2, zone.y + zone.h / 2, {
         color: "#ff8c61",
@@ -1052,8 +1074,14 @@ export class Game {
     for (const barrier of barriers) {
       if (barrier.broken || !rectsOverlap(entity, barrier)) continue;
 
-      const prevX = entity.prevX ?? entity.x;
-      const prevY = entity.prevY ?? entity.y;
+      const prevX =
+        entity.prevX !== undefined && entity.prevX !== null
+          ? entity.prevX
+          : entity.x;
+      const prevY =
+        entity.prevY !== undefined && entity.prevY !== null
+          ? entity.prevY
+          : entity.y;
       const prevRight = prevX + entity.w;
       const prevBottom = prevY + entity.h;
       const prevLeft = prevX;
@@ -1188,9 +1216,9 @@ export class Game {
       life: 0.22,
       size: 1.5,
     });
-    if (this.sfx?.bossGun) {
+    if (this.sfx && this.sfx.bossGun) {
       this.sfx.bossGun.play();
-    } else if (this.sfx?.gun) {
+    } else if (this.sfx && this.sfx.gun) {
       this.sfx.gun.play();
     }
   }
@@ -1257,7 +1285,7 @@ export class Game {
         maxSpeed: 135,
         life: 0.22,
       });
-      if (this.sfx?.bossHurt) {
+      if (this.sfx && this.sfx.bossHurt) {
         this.sfx.bossHurt.play();
       }
       if (enemy.hp <= 0) {
@@ -1646,13 +1674,16 @@ export class Game {
 
   handleExit() {
     if (
-      this.level?.boss &&
+      this.level &&
+      this.level.boss &&
       (!this.boss || this.boss.state !== BOSS_STATES.DEFEATED || this.state === "bossfight")
     ) {
       return;
     }
     const requiredCoins =
-      this.level.minCoinsToExit ?? CONFIG.minCoinsToExit;
+      this.level.minCoinsToExit !== undefined && this.level.minCoinsToExit !== null
+        ? this.level.minCoinsToExit
+        : CONFIG.minCoinsToExit;
     const requiredSwatKills = this.level.requiredSwatKills || 0;
     if (
       rectsOverlap(this.player, this.level.exit) &&
@@ -1960,7 +1991,8 @@ export class Game {
 
   resumeMusic() {
     const shouldUseBossMusic = !!(
-      this.level?.boss &&
+      this.level &&
+      this.level.boss &&
       (this.state === "bossfight" || this.bossDefeatActive)
     );
 
@@ -2020,7 +2052,10 @@ export class Game {
   }
 
   getExitCoinShortage() {
-    const required = this.level.minCoinsToExit ?? CONFIG.minCoinsToExit;
+    const required =
+      this.level.minCoinsToExit !== undefined && this.level.minCoinsToExit !== null
+        ? this.level.minCoinsToExit
+        : CONFIG.minCoinsToExit;
     if (!rectsOverlap(this.player, this.level.exit) || this.coinCount >= required) {
       return 0;
     }
@@ -2038,12 +2073,16 @@ export class Game {
 
   isExitReady() {
     if (
-      this.level?.boss &&
+      this.level &&
+      this.level.boss &&
       (!this.boss || this.boss.state !== BOSS_STATES.DEFEATED || this.bossDefeatActive)
     ) {
       return false;
     }
-    const requiredCoins = this.level.minCoinsToExit ?? CONFIG.minCoinsToExit;
+    const requiredCoins =
+      this.level.minCoinsToExit !== undefined && this.level.minCoinsToExit !== null
+        ? this.level.minCoinsToExit
+        : CONFIG.minCoinsToExit;
     const requiredSwatKills = this.level.requiredSwatKills || 0;
     return this.coinCount >= requiredCoins && this.swatKills >= requiredSwatKills;
   }
@@ -2151,7 +2190,10 @@ export class Game {
   drawPickups(ctx) {
     for (const pickup of this.level.pickups || []) {
       if (pickup.collected) continue;
-      const sprite = this.powerUpSprites?.[pickup.type] || null;
+      const sprite =
+        this.powerUpSprites && this.powerUpSprites[pickup.type]
+          ? this.powerUpSprites[pickup.type]
+          : null;
       const hover = Math.sin(this.time * 6 + pickup.x * 0.1) * 2.2;
       const pulse = (Math.sin(this.time * 7 + pickup.x * 0.06) + 1) * 0.5;
       const drawX = pickup.x;
@@ -2261,7 +2303,7 @@ export class Game {
 
   drawProjectiles(ctx) {
     for (const projectile of this.projectiles) {
-      if (!this.isMobile && projectile.trail?.length) {
+      if (!this.isMobile && projectile.trail && projectile.trail.length) {
         for (let i = 0; i < projectile.trail.length; i += 1) {
           const point = projectile.trail[i];
           const alpha = 1 - i / projectile.trail.length;
@@ -2370,7 +2412,10 @@ export class Game {
       this.boss,
       this.player.x + this.player.w / 2
     );
-    const alpha = this.boss.alpha ?? 1;
+    const alpha =
+      this.boss.alpha !== undefined && this.boss.alpha !== null
+        ? this.boss.alpha
+        : 1;
 
     if (!frame || !frame.image) {
       ctx.save();
@@ -2391,7 +2436,7 @@ export class Game {
     const centerX = Math.round(drawX + drawW / 2 + (transform.offsetX || 0));
     const centerY = Math.round(drawY + drawH / 2 + (transform.offsetY || 0));
     const desiredFacing = this.boss.facing < 0 ? -1 : 1;
-    const sourceFacing = clip?.facing || 1;
+    const sourceFacing = clip && clip.facing ? clip.facing : 1;
     const flip = sourceFacing !== desiredFacing;
     const flash = this.boss.flashTimer > 0;
 
@@ -2477,7 +2522,7 @@ export class Game {
     const drawY = this.player.y + this.player.h - drawH;
     const centerX = drawX + drawW / 2 + (transform.offsetX || 0);
     const centerY = drawY + drawH / 2 + (transform.offsetY || 0);
-    const sourceFacing = clip?.facing || 1;
+    const sourceFacing = clip && clip.facing ? clip.facing : 1;
     const flip = sourceFacing !== this.player.facing;
 
     if (visualState === "dash") {
@@ -2544,7 +2589,7 @@ export class Game {
     const frame = getAnimationFrame(enemy, animationSet);
     if (!frame) return null;
     const desiredFacing = enemy.facing < 0 ? -1 : 1;
-    const sourceFacing = clip?.facing || 1;
+    const sourceFacing = clip && clip.facing ? clip.facing : 1;
     const flip = sourceFacing !== desiredFacing;
     return { frame, flip };
   }
@@ -2734,12 +2779,24 @@ export class Game {
   }
 
   spawnParticles(x, y, options = {}) {
-    const count = options.count ?? 6;
-    const color = options.color ?? "#ffffff";
-    const minSpeed = options.minSpeed ?? 40;
-    const maxSpeed = options.maxSpeed ?? 120;
-    const life = options.life ?? 0.3;
-    const size = options.size ?? 2;
+    const count =
+      options.count !== undefined && options.count !== null ? options.count : 6;
+    const color =
+      options.color !== undefined && options.color !== null
+        ? options.color
+        : "#ffffff";
+    const minSpeed =
+      options.minSpeed !== undefined && options.minSpeed !== null
+        ? options.minSpeed
+        : 40;
+    const maxSpeed =
+      options.maxSpeed !== undefined && options.maxSpeed !== null
+        ? options.maxSpeed
+        : 120;
+    const life =
+      options.life !== undefined && options.life !== null ? options.life : 0.3;
+    const size =
+      options.size !== undefined && options.size !== null ? options.size : 2;
     const maxParticles = this.isMobile ? 80 : 200;
 
     for (let i = 0; i < count; i += 1) {

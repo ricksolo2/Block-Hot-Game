@@ -61,58 +61,69 @@
     <!-- Mobile layer — only activates on touch devices, desktop never sees it -->
     <script>
     (function() {
-      const hasTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+      var hasTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
       if (!hasTouch) return; // Desktop: stop here, nothing changes
 
       // Show touch UI
-      const ui = document.getElementById('touch-ui');
+      var ui = document.getElementById('touch-ui');
       ui.classList.remove('touch-hidden');
       document.body.classList.add('has-touch');
 
       // Touch → keyboard bridge
       function fireKey(code, type) {
-        window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+        window.dispatchEvent(new KeyboardEvent(type, { code: code, bubbles: true }));
       }
 
-      const held = new Map();
-      ui.querySelectorAll('.t-btn[data-key]').forEach(function(btn) {
-        var key = btn.getAttribute('data-key');
-
-        btn.addEventListener('touchstart', function(e) {
-          e.preventDefault();
-          btn.classList.add('active');
-          fireKey(key, 'keydown');
-          held.set(btn, key);
-          if (navigator.vibrate) navigator.vibrate(12);
-        }, { passive: false });
-
-        btn.addEventListener('touchend', function(e) {
-          e.preventDefault();
-          btn.classList.remove('active');
-          if (held.has(btn)) { fireKey(held.get(btn), 'keyup'); held.delete(btn); }
-        }, { passive: false });
-
-        btn.addEventListener('touchcancel', function() {
-          btn.classList.remove('active');
-          if (held.has(btn)) { fireKey(held.get(btn), 'keyup'); held.delete(btn); }
-        });
-      });
-
-      // Show Continue/Menu buttons during non-playing states
-      var overlay = document.getElementById('touch-overlay');
-      if (overlay) {
-        overlay.querySelectorAll('.t-overlay-btn[data-key]').forEach(function(btn) {
+      var buttons = ui.querySelectorAll('.t-btn[data-key]');
+      for (var i = 0; i < buttons.length; i += 1) {
+        (function(btn) {
           var key = btn.getAttribute('data-key');
+
           btn.addEventListener('touchstart', function(e) {
             e.preventDefault();
             btn.classList.add('active');
             fireKey(key, 'keydown');
-            setTimeout(function() {
-              fireKey(key, 'keyup');
-              btn.classList.remove('active');
-            }, 100);
+            btn._heldKey = key;
+            if (navigator.vibrate) navigator.vibrate(12);
           }, { passive: false });
-        });
+
+          btn.addEventListener('touchend', function(e) {
+            e.preventDefault();
+            btn.classList.remove('active');
+            if (btn._heldKey) {
+              fireKey(btn._heldKey, 'keyup');
+              btn._heldKey = '';
+            }
+          }, { passive: false });
+
+          btn.addEventListener('touchcancel', function() {
+            btn.classList.remove('active');
+            if (btn._heldKey) {
+              fireKey(btn._heldKey, 'keyup');
+              btn._heldKey = '';
+            }
+          });
+        })(buttons[i]);
+      }
+
+      // Show Continue/Menu buttons during non-playing states
+      var overlay = document.getElementById('touch-overlay');
+      if (overlay) {
+        var overlayButtons = overlay.querySelectorAll('.t-overlay-btn[data-key]');
+        for (var j = 0; j < overlayButtons.length; j += 1) {
+          (function(btn) {
+            var key = btn.getAttribute('data-key');
+            btn.addEventListener('touchstart', function(e) {
+              e.preventDefault();
+              btn.classList.add('active');
+              fireKey(key, 'keydown');
+              setTimeout(function() {
+                fireKey(key, 'keyup');
+                btn.classList.remove('active');
+              }, 100);
+            }, { passive: false });
+          })(overlayButtons[j]);
+        }
 
         setInterval(function() {
           var gameState = window.__blockhot_state || '';

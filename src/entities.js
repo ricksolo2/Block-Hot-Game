@@ -1018,7 +1018,7 @@ export class Boss {
 
   applyDamage(pellet, direction) {
     const multiplier = this.phase === 3 ? 2 : 1;
-    const damage = (pellet?.damage || 1) * multiplier;
+    const damage = (((pellet && pellet.damage) || 1) * multiplier);
     this.hp -= damage;
     this.flashTimer = 0.08;
     this.vx += (direction || 1) * 36;

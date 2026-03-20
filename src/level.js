@@ -48,9 +48,15 @@ export class Level {
       resolveRect(rect, this.tileSize)
     );
     this.exit = resolveRect(data.exit, this.tileSize);
-    this.minCoinsToExit = data.minCoinsToExit ?? CONFIG.minCoinsToExit;
+    this.minCoinsToExit =
+      data.minCoinsToExit !== undefined && data.minCoinsToExit !== null
+        ? data.minCoinsToExit
+        : CONFIG.minCoinsToExit;
     this.requiredSwatKills = data.requiredSwatKills || 0;
-    this.allowDynamicSpawns = data.allowDynamicSpawns ?? !data.boss;
+    this.allowDynamicSpawns =
+      data.allowDynamicSpawns !== undefined && data.allowDynamicSpawns !== null
+        ? data.allowDynamicSpawns
+        : !data.boss;
     this.barriers = (data.barriers || []).map((barrier) =>
       resolveBarrier(barrier, this.tileSize)
     );

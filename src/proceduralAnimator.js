@@ -75,7 +75,9 @@ export class ProceduralAnimator {
           offsetY: 0,
           scaleX: 1.06,
           scaleY: 0.94,
-          rotation: clamp((entity?.vx || 0) / 120, -1, 1) * (4 * DEG_TO_RAD),
+          rotation:
+            clamp((((entity && entity.vx) || 0) / 120), -1, 1) *
+            (4 * DEG_TO_RAD),
         };
       case "dash":
         return {
@@ -83,7 +85,7 @@ export class ProceduralAnimator {
           offsetY: 0,
           scaleX: 1.2,
           scaleY: 0.85,
-          rotation: (entity?.facing || 1) * (9 * DEG_TO_RAD),
+          rotation: (((entity && entity.facing) || 1) * (9 * DEG_TO_RAD)),
         };
       case "hit": {
         const pulse = this.wave(10);
@@ -109,7 +111,10 @@ export class ProceduralAnimator {
           offsetY: this.wave(2) * 0.5,
           scaleX: 0.98,
           scaleY: 1.02,
-          rotation: entity?.touchingLeft ? 6 * DEG_TO_RAD : -6 * DEG_TO_RAD,
+          rotation:
+            entity && entity.touchingLeft
+              ? 6 * DEG_TO_RAD
+              : -6 * DEG_TO_RAD,
         };
       default:
         return DEFAULT_TRANSFORM;
@@ -148,7 +153,8 @@ export class ProceduralAnimator {
     }
 
     if (enemy.state === "attack") {
-      const dir = Math.sign((targetX ?? enemy.x) - enemy.x) || enemy.facing || 1;
+      const target = targetX !== undefined && targetX !== null ? targetX : enemy.x;
+      const dir = Math.sign(target - enemy.x) || enemy.facing || 1;
       return {
         offsetX: 0,
         offsetY: 0,
@@ -213,7 +219,8 @@ export class ProceduralAnimator {
     }
 
     if (enemy.state === "attack") {
-      const dir = Math.sign((targetX ?? enemy.x) - enemy.x) || enemy.facing || 1;
+      const target = targetX !== undefined && targetX !== null ? targetX : enemy.x;
+      const dir = Math.sign(target - enemy.x) || enemy.facing || 1;
       return {
         offsetX: 0,
         offsetY: 0,
@@ -247,8 +254,9 @@ export class ProceduralAnimator {
   getBossTransform(boss, targetX = null) {
     if (!boss) return DEFAULT_TRANSFORM;
 
+    const target = targetX !== undefined && targetX !== null ? targetX : boss.x;
     const chargeDir =
-      Math.sign((targetX ?? boss.x) - (boss.x + boss.w / 2)) || boss.facing || -1;
+      Math.sign(target - (boss.x + boss.w / 2)) || boss.facing || -1;
 
     switch (boss.state) {
       case BOSS_STATES.CHARGE:

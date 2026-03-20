@@ -158,7 +158,8 @@ function drawCoinScore(ctx, game) {
 }
 
 function drawObjectives(ctx, game) {
-  const requiredSwatKills = game.level?.requiredSwatKills || 0;
+  const requiredSwatKills =
+    (game.level && game.level.requiredSwatKills) || 0;
   if (!requiredSwatKills) return;
 
   const text = `SWAT: ${game.swatKills}/${requiredSwatKills}`;
@@ -303,7 +304,7 @@ function drawBossHud(ctx, game) {
 
   drawBossHealthBar(ctx, game, 1);
 
-  if (game.boss?.state === "transition") {
+  if (game.boss && game.boss.state === "transition") {
     const text =
       game.boss.phase === 2
         ? "THE ENFORCER is getting serious..."
@@ -444,8 +445,13 @@ function drawInstructions(ctx, game) {
 
   ctx.font = "9px monospace";
   const requiredCoins =
-    game.level?.minCoinsToExit ?? CONFIG.minCoinsToExit;
-  const requiredSwatKills = game.level?.requiredSwatKills || 0;
+    game.level &&
+    game.level.minCoinsToExit !== undefined &&
+    game.level.minCoinsToExit !== null
+      ? game.level.minCoinsToExit
+      : CONFIG.minCoinsToExit;
+  const requiredSwatKills =
+    (game.level && game.level.requiredSwatKills) || 0;
   drawText(ctx, "Move: WASD / Arrows", 8, 32, "#e6e6e6");
   drawText(ctx, "Jump: Z or Space", 8, 44, "#e6e6e6");
   drawText(ctx, "Shoot: X   Dash: C   Reload: R", 8, 56, "#e6e6e6");

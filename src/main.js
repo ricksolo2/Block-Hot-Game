@@ -16,12 +16,12 @@ ctx.imageSmoothingEnabled = false;
 const loadingEl = document.getElementById("loading");
 
 const input = new Input(window);
-bootstrap().catch((error) => {
+init().catch(function(error) {
   console.error("BlockHot failed to boot.", error);
   loadingEl.textContent = `Failed to load game: ${error.message || error}`;
 });
 
-async function bootstrap() {
+async function init() {
   const [
     level1,
     level2,
@@ -74,11 +74,13 @@ async function bootstrap() {
       background: background4 || background3Primary || background2 || background1,
     },
   ];
-  const spriteScale = playerAnimations?.baseHeight
-    ? 28 / playerAnimations.baseHeight
+  const playerBaseHeight = getAnimationBaseHeight(playerAnimations);
+  const bossBaseHeight = getAnimationBaseHeight(bossAnimations);
+  const spriteScale = playerBaseHeight
+    ? 28 / playerBaseHeight
     : 1;
   const enemyScales = buildEnemyScales(enemyAnimations);
-  const bossScale = bossAnimations?.baseHeight ? 42 / bossAnimations.baseHeight : 1;
+  const bossScale = bossBaseHeight ? 42 / bossBaseHeight : 1;
 
   const music = createMusic("../audio/2012 Drill x Lofi Hype.mp3", 0.3);
   const bossMusic = createMusic("../audio/Boss Level Drill (Take 2).mp3", 0.38);
@@ -218,7 +220,7 @@ async function loadPlayerAnimations() {
     shootRight ||
     jumpSheetRight ||
     null;
-  const referenceHeight = referenceSprite?.height || 1;
+  const referenceHeight = getSpriteHeight(referenceSprite) || 1;
   const rightIdleSprites = matchSpritesToHeight(
     [idleRight || idleLeft || runRight || gunReady].filter(Boolean),
     referenceHeight
@@ -278,8 +280,8 @@ async function loadPlayerAnimations() {
     attackRight: rightAttackSprites,
     stunnedRight: rightStunnedSprites,
     stunnedLeft: leftStunnedSprites,
-    deadRight: rightStunnedSprites.length > 0 ? [rightStunnedSprites.at(-1)] : [],
-    deadLeft: leftStunnedSprites.length > 0 ? [leftStunnedSprites.at(-1)] : [],
+    deadRight: rightStunnedSprites.length > 0 ? [getArrayItem(rightStunnedSprites, -1)] : [],
+    deadLeft: leftStunnedSprites.length > 0 ? [getArrayItem(leftStunnedSprites, -1)] : [],
   });
 
   return {
@@ -431,7 +433,7 @@ async function loadEnemyAnimations() {
   );
   const ninjaIdleFrames = mergeFrames(splitFrames(ninjaBottomStrip, 3));
   const ninjaIdleFrame =
-    ninjaIdleFrames.at(1) ||
+    getArrayItem(ninjaIdleFrames, 1) ||
     ninjaIdleFrames[0] ||
     createFrame(ninja);
 
@@ -462,11 +464,11 @@ async function loadEnemyAnimations() {
   const swatShootLeftSprite =
     swatShootLeft || swatLegacyShootLeft || flipSprite(swatShootRightSprite);
   const swatReferenceHeight =
-    swatIdleRightSprite?.height ||
-    swatWalkRight?.height ||
-    swatWalkLeft?.height ||
-    swatShootRightSprite?.height ||
-    swatShootLeftSprite?.height ||
+    getSpriteHeight(swatIdleRightSprite) ||
+    getSpriteHeight(swatWalkRight) ||
+    getSpriteHeight(swatWalkLeft) ||
+    getSpriteHeight(swatShootRightSprite) ||
+    getSpriteHeight(swatShootLeftSprite) ||
     1;
   const normalizedSwat = normalizeSpriteGroups({
     idleRight: matchSpritesToHeight([swatIdleRightSprite].filter(Boolean), swatReferenceHeight),
@@ -500,24 +502,24 @@ async function loadEnemyAnimations() {
         { frameDuration: 0.12 }
       ),
       [ENTITY_STATES.ATTACK]: createClip(
-        mergeFrames(createFrame(ninja), ninjaRunFrames.at(0)),
+        mergeFrames(createFrame(ninja), getArrayItem(ninjaRunFrames, 0)),
         { frameDuration: 0.08, loop: false }
       ),
       [ENTITY_STATES.STUNNED]: createClip(
-        mergeFrames(ninjaIdleFrames.at(1), createFrame(ninja)),
+        mergeFrames(getArrayItem(ninjaIdleFrames, 1), createFrame(ninja)),
         { frameDuration: 0.1, loop: false }
       ),
       [ENTITY_STATES.DEAD]: createClip(
-        mergeFrames(ninjaIdleFrames.at(-1), createFrame(ninja)),
+        mergeFrames(getArrayItem(ninjaIdleFrames, -1), createFrame(ninja)),
         { frameDuration: 0.12, loop: false }
       ),
       baseHeight:
-        ninjaTopStrip?.height ||
-        ninjaBottomStrip?.height ||
-        ninja?.height ||
+        getSpriteHeight(ninjaTopStrip) ||
+        getSpriteHeight(ninjaBottomStrip) ||
+        getSpriteHeight(ninja) ||
         1,
     },
-    cop: createStaticAnimationSet(cop, { baseHeight: cop?.height || 1 }),
+    cop: createStaticAnimationSet(cop, { baseHeight: getSpriteHeight(cop) || 1 }),
     snake: {
       [ENTITY_STATES.IDLE]: clipFromSprites(normalizedSnake.idle, {
         frameDuration: 0.2,
@@ -531,7 +533,7 @@ async function loadEnemyAnimations() {
       }),
       [ENTITY_STATES.STUNNED]: clipFromSprites(
         [
-          normalizedSnake.idle.at(1) ||
+          getArrayItem(normalizedSnake.idle, 1) ||
             normalizedSnake.idle[0] ||
             normalizedSnake.attack[0],
         ].filter(Boolean),
@@ -539,8 +541,8 @@ async function loadEnemyAnimations() {
       ),
       [ENTITY_STATES.DEAD]: clipFromSprites(
         [
-          normalizedSnake.attack.at(-1) ||
-            normalizedSnake.idle.at(-1) ||
+          getArrayItem(normalizedSnake.attack, -1) ||
+            getArrayItem(normalizedSnake.idle, -1) ||
             normalizedSnake.idle[0],
         ].filter(Boolean),
         { frameDuration: 0.12, loop: false }
@@ -549,11 +551,11 @@ async function loadEnemyAnimations() {
     },
     redNinja: createStaticAnimationSet(redNinja, {
       attack: redNinjaAttack,
-      baseHeight: redNinja?.height || redNinjaAttack?.height || 1,
+      baseHeight: getSpriteHeight(redNinja) || getSpriteHeight(redNinjaAttack) || 1,
     }),
     blueNinja: createStaticAnimationSet(blueNinja, {
       attack: blueNinjaAttack,
-      baseHeight: blueNinja?.height || blueNinjaAttack?.height || 1,
+      baseHeight: getSpriteHeight(blueNinja) || getSpriteHeight(blueNinjaAttack) || 1,
     }),
     swat: {
       [ENTITY_STATES.IDLE]: createDirectionalClips(
@@ -602,7 +604,7 @@ async function loadEnemyAnimations() {
     bulldog: {
       [ENTITY_STATES.IDLE]: createClip(
         mergeFrames(
-          bulldogRunFrames.at(0),
+          getArrayItem(bulldogRunFrames, 0),
           createFrame(bulldog)
         ),
         { frameDuration: 0.16 }
@@ -621,24 +623,24 @@ async function loadEnemyAnimations() {
       ),
       [ENTITY_STATES.STUNNED]: createClip(
         mergeFrames(
-          bulldogAttackFrames.at(0),
-          bulldogRunFrames.at(0),
+          getArrayItem(bulldogAttackFrames, 0),
+          getArrayItem(bulldogRunFrames, 0),
           createFrame(bulldog)
         ),
         { frameDuration: 0.1, loop: false }
       ),
       [ENTITY_STATES.DEAD]: createClip(
         mergeFrames(
-          bulldogAttackFrames.at(-1),
-          bulldogRunFrames.at(-1),
+          getArrayItem(bulldogAttackFrames, -1),
+          getArrayItem(bulldogRunFrames, -1),
           createFrame(bulldog)
         ),
         { frameDuration: 0.12, loop: false }
       ),
       baseHeight:
-        bulldogMoveTopStrip?.height ||
-        bulldogMoveBottomStrip?.height ||
-        bulldog?.height ||
+        getSpriteHeight(bulldogMoveTopStrip) ||
+        getSpriteHeight(bulldogMoveBottomStrip) ||
+        getSpriteHeight(bulldog) ||
         1,
     },
   };
@@ -747,11 +749,11 @@ async function loadBossAnimations() {
   }
 
   const referenceHeight =
-    resolvedIdleRight?.height ||
-    resolvedWalkCenter?.height ||
-    resolvedWalkRightA?.height ||
-    resolvedIdleLeft?.height ||
-    resolvedSwipeLeft?.height ||
+    getSpriteHeight(resolvedIdleRight) ||
+    getSpriteHeight(resolvedWalkCenter) ||
+    getSpriteHeight(resolvedWalkRightA) ||
+    getSpriteHeight(resolvedIdleLeft) ||
+    getSpriteHeight(resolvedSwipeLeft) ||
     1;
   const normalized = normalizeSpriteGroups({
     idleRight: matchSpritesToHeight([resolvedIdleRight].filter(Boolean), referenceHeight),
@@ -837,18 +839,26 @@ async function loadBossAnimations() {
 function buildEnemyScales(animationSets) {
   if (!animationSets) return null;
   const scales = {};
-  if (animationSets.ninja?.baseHeight) scales.ninja = 26 / animationSets.ninja.baseHeight;
-  if (animationSets.redNinja?.baseHeight) {
-    scales.redNinja = 26 / animationSets.redNinja.baseHeight;
+  if (getAnimationBaseHeight(animationSets.ninja)) {
+    scales.ninja = 26 / getAnimationBaseHeight(animationSets.ninja);
   }
-  if (animationSets.blueNinja?.baseHeight) {
-    scales.blueNinja = 26 / animationSets.blueNinja.baseHeight;
+  if (getAnimationBaseHeight(animationSets.redNinja)) {
+    scales.redNinja = 26 / getAnimationBaseHeight(animationSets.redNinja);
   }
-  if (animationSets.cop?.baseHeight) scales.cop = 28 / animationSets.cop.baseHeight;
-  if (animationSets.swat?.baseHeight) scales.swat = 28 / animationSets.swat.baseHeight;
-  if (animationSets.snake?.baseHeight) scales.snake = 14 / animationSets.snake.baseHeight;
-  if (animationSets.bulldog?.baseHeight) {
-    scales.bulldog = 16 / animationSets.bulldog.baseHeight;
+  if (getAnimationBaseHeight(animationSets.blueNinja)) {
+    scales.blueNinja = 26 / getAnimationBaseHeight(animationSets.blueNinja);
+  }
+  if (getAnimationBaseHeight(animationSets.cop)) {
+    scales.cop = 28 / getAnimationBaseHeight(animationSets.cop);
+  }
+  if (getAnimationBaseHeight(animationSets.swat)) {
+    scales.swat = 28 / getAnimationBaseHeight(animationSets.swat);
+  }
+  if (getAnimationBaseHeight(animationSets.snake)) {
+    scales.snake = 14 / getAnimationBaseHeight(animationSets.snake);
+  }
+  if (getAnimationBaseHeight(animationSets.bulldog)) {
+    scales.bulldog = 16 / getAnimationBaseHeight(animationSets.bulldog);
   }
   return scales;
 }
@@ -1040,6 +1050,21 @@ function clipFromSprites(sprites, options = {}) {
   );
 }
 
+function getArrayItem(items, index) {
+  if (!items || items.length === 0) return null;
+  const resolvedIndex = index < 0 ? items.length + index : index;
+  if (resolvedIndex < 0 || resolvedIndex >= items.length) return null;
+  return items[resolvedIndex];
+}
+
+function getSpriteHeight(sprite) {
+  return sprite && sprite.height ? sprite.height : 0;
+}
+
+function getAnimationBaseHeight(animationSet) {
+  return animationSet && animationSet.baseHeight ? animationSet.baseHeight : 0;
+}
+
 function createDirectionalClips(rightSprites, leftSprites, options = {}) {
   const rightClip = clipFromSprites(rightSprites, { ...options, facing: 1 });
   const leftClip = clipFromSprites(leftSprites, { ...options, facing: -1 });
@@ -1070,7 +1095,7 @@ function createStaticAnimationSet(image, options = {}) {
       frameDuration: 0.12,
       loop: false,
     }),
-    baseHeight: options.baseHeight || image?.height || 1,
+    baseHeight: options.baseHeight || getSpriteHeight(image) || 1,
   };
 }
 
@@ -1085,8 +1110,14 @@ function createMusic(path, baseVolume = 1) {
 }
 
 function createSfx(path, options = {}) {
-  const poolSize = options.poolSize ?? 4;
-  const baseVolume = options.volume ?? 1;
+  const poolSize =
+    options.poolSize !== undefined && options.poolSize !== null
+      ? options.poolSize
+      : 4;
+  const baseVolume =
+    options.volume !== undefined && options.volume !== null
+      ? options.volume
+      : 1;
   const clips = Array.from({ length: poolSize }, () => {
     const clip = new Audio(resolveUrl(path));
     clip.preload = "auto";
@@ -1118,7 +1149,10 @@ function createSfx(path, options = {}) {
           .catch(() => {});
       });
       setTimeout(() => {
-        const masterVolume = clips[0]?._masterVolume || 0.6;
+        const masterVolume =
+          clips[0] && clips[0]._masterVolume !== undefined && clips[0]._masterVolume !== null
+            ? clips[0]._masterVolume
+            : 0.6;
         clips.forEach((clip) => {
           clip.volume = masterVolume * baseVolume;
         });
@@ -1148,7 +1182,11 @@ function applyAudioState(music, sfx, state, extraMusic = []) {
   const volume = state.muted ? 0 : state.volume;
   [music, ...extraMusic].filter(Boolean).forEach((track) => {
     track._masterVolume = volume;
-    track.volume = volume * (track.baseVolume ?? 1);
+    track.volume =
+      volume *
+      (track.baseVolume !== undefined && track.baseVolume !== null
+        ? track.baseVolume
+        : 1);
   });
   if (sfx) {
     Object.values(sfx).forEach((sound) => sound.setVolume(volume));

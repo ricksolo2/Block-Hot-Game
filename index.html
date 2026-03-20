@@ -28,6 +28,7 @@
     </div>
 
     <main id="game-wrap">
+      <button id="fullscreen-btn" aria-label="Toggle Fullscreen">⛶ FULLSCREEN</button>
       <canvas id="game" width="640" height="360" aria-label="BlockHot game canvas" role="img"></canvas>
       <div id="loading">Loading...</div>
 
@@ -161,6 +162,39 @@
         document.removeEventListener('touchstart', first);
       });
     })();
+    </script>
+
+    <script>
+    document.getElementById('fullscreen-btn').addEventListener('click', function() {
+      var el = document.documentElement;
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        var rfs = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (rfs) {
+          var request = rfs.call(el);
+          if (request && typeof request.then === 'function') {
+            request.then(function() {
+              try { screen.orientation.lock('landscape').catch(function(){}); } catch(e) {}
+            }).catch(function(){});
+          } else {
+            try { screen.orientation.lock('landscape').catch(function(){}); } catch(e) {}
+          }
+        }
+      } else {
+        var efs = document.exitFullscreen || document.webkitExitFullscreen;
+        if (efs) efs.call(document);
+      }
+    });
+
+    document.addEventListener('fullscreenchange', updateFSBtn);
+    document.addEventListener('webkitfullscreenchange', updateFSBtn);
+    function updateFSBtn() {
+      var btn = document.getElementById('fullscreen-btn');
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        btn.textContent = '✕ EXIT FULLSCREEN';
+      } else {
+        btn.textContent = '⛶ FULLSCREEN';
+      }
+    }
     </script>
 
     <!-- Service Worker for offline play -->

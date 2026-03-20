@@ -38,7 +38,19 @@ export function createFrame(image) {
 }
 
 export function mergeFrames(...groups) {
-  return groups.flat().filter(Boolean);
+  const merged = [];
+  for (let i = 0; i < groups.length; i += 1) {
+    const group = groups[i];
+    if (!group) continue;
+    if (Array.isArray(group)) {
+      for (let j = 0; j < group.length; j += 1) {
+        if (group[j]) merged.push(group[j]);
+      }
+    } else if (group) {
+      merged.push(group);
+    }
+  }
+  return merged;
 }
 
 export function createClip(frames, options = {}) {

@@ -1,4 +1,4 @@
-import { BOSS_STATES } from "./entities.js?v=13";
+import { BOSS_STATES } from "./entities.js?v=14";
 
 const TAU = Math.PI * 2;
 const DEG_TO_RAD = Math.PI / 180;

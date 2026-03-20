@@ -3,7 +3,7 @@ import {
   getAnimationClip,
   getAnimationFrame,
   stepAnimation,
-} from "./animation.js?v=4";
+} from "./animation.js?v=5";
 import { CONFIG, PELLETS } from "./constants.js?v=6";
 import {
   clamp,
@@ -19,9 +19,9 @@ import {
   Projectile,
   EnemyProjectile,
   BOSS_STATES,
-} from "./entities.js?v=13";
-import { ProceduralAnimator } from "./proceduralAnimator.js?v=8";
-import { drawHud } from "./ui.js?v=7";
+} from "./entities.js?v=14";
+import { ProceduralAnimator } from "./proceduralAnimator.js?v=9";
+import { drawHud } from "./ui.js?v=8";
 
 export class Game {
   constructor(canvas, ctx, input, level, options = {}) {

@@ -1,13 +1,13 @@
-import { Game } from "./game.js?v=17";
+import { Game } from "./game.js?v=18";
 import {
   ENTITY_STATES,
   createClip,
   createFrame,
   mergeFrames,
   splitSpriteSheet,
-} from "./animation.js?v=4";
+} from "./animation.js?v=5";
 import { Input } from "./input.js?v=5";
-import { loadLevel } from "./level.js?v=7";
+import { loadLevel } from "./level.js?v=8";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d", { alpha: false });
@@ -968,13 +968,17 @@ function normalizeSpriteGroups(groups) {
   let maxWidth = 1;
   let maxHeight = 1;
 
-  Object.values(groups)
-    .flat()
-    .forEach((sprite) => {
-      if (!sprite) return;
+  const groupValues = Object.values(groups);
+  for (let i = 0; i < groupValues.length; i += 1) {
+    const sprites = groupValues[i];
+    if (!sprites) continue;
+    for (let j = 0; j < sprites.length; j += 1) {
+      const sprite = sprites[j];
+      if (!sprite) continue;
       maxWidth = Math.max(maxWidth, sprite.width);
       maxHeight = Math.max(maxHeight, sprite.height);
-    });
+    }
+  }
 
   const normalized = { baseWidth: maxWidth, baseHeight: maxHeight };
   for (const [key, sprites] of Object.entries(groups)) {

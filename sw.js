@@ -1,19 +1,19 @@
-const CACHE = 'blockhot-v3';
+const CACHE = 'blockhot-v4';
 
 const CORE = [
   '/',
   '/index.html',
   '/styles.css',
   '/manifest.json',
-  '/src/main.js?v=4',
-  '/src/game.js?v=17',
-  '/src/entities.js?v=13',
-  '/src/animation.js?v=4',
+  '/src/main.js?v=5',
+  '/src/game.js?v=18',
+  '/src/entities.js?v=14',
+  '/src/animation.js?v=5',
   '/src/constants.js?v=6',
   '/src/input.js?v=5',
-  '/src/level.js?v=7',
-  '/src/proceduralAnimator.js?v=8',
-  '/src/ui.js?v=7',
+  '/src/level.js?v=8',
+  '/src/proceduralAnimator.js?v=9',
+  '/src/ui.js?v=8',
   '/src/utils.js?v=5',
   '/levels/level1.json',
   '/levels/level2.json',
@@ -23,28 +23,69 @@ const CORE = [
   '/assets/icon-512.png',
 ];
 
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
+self.addEventListener('install', function(e) {
+  e.waitUntil(caches.open(CACHE).then(function(c) { return c.addAll(CORE); }));
   self.skipWaiting();
 });
 
-self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(
-    ks.filter(k => k !== CACHE).map(k => caches.delete(k))
-  )));
+self.addEventListener('activate', function(e) {
+  e.waitUntil(
+    caches.keys().then(function(ks) {
+      return Promise.all(
+        ks.filter(function(k) { return k !== CACHE; }).map(function(k) {
+          return caches.delete(k);
+        })
+      );
+    })
+  );
   self.clients.claim();
 });
 
-self.addEventListener('fetch', e => {
+self.addEventListener('fetch', function(e) {
+  var request = e.request;
+  if (request.method !== 'GET') {
+    return;
+  }
+
+  var isStaticAsset =
+    request.url.indexOf('/assets/') !== -1 ||
+    request.url.indexOf('/audio/') !== -1;
+
+  if (isStaticAsset) {
+    e.respondWith(
+      caches.match(request).then(function(cached) {
+        if (cached) return cached;
+        return fetch(request).then(function(response) {
+          if (response && response.ok) {
+            caches.open(CACHE).then(function(cache) {
+              cache.put(request, response.clone());
+            });
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
   e.respondWith(
-    caches.match(e.request).then(r => {
-      if (r) return r;
-      return fetch(e.request).then(res => {
-        if (res.ok && (e.request.url.includes('/assets/') || e.request.url.includes('/audio/'))) {
-          caches.open(CACHE).then(c => c.put(e.request, res.clone()));
+    fetch(request)
+      .then(function(response) {
+        if (response && response.ok) {
+          caches.open(CACHE).then(function(cache) {
+            cache.put(request, response.clone());
+          });
         }
-        return res;
-      }).catch(() => e.request.mode === 'navigate' ? caches.match('/index.html') : undefined);
-    })
+        return response;
+      })
+      .catch(function() {
+        return caches.match(request).then(function(cached) {
+          if (cached) return cached;
+          if (request.mode === 'navigate') {
+            return caches.match('/index.html');
+          }
+          return undefined;
+        });
+      })
   );
 });

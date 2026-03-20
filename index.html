@@ -55,8 +55,12 @@
       </div>
     </main>
 
+    <div id="ios-fullscreen-hint" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.85); color:#e6e6e6; padding:12px 20px; border-radius:8px; font:13px monospace; text-align:center; z-index:9999; border:1px solid rgba(255,255,255,0.2); opacity:0; transition:opacity 0.25s ease;">
+      For fullscreen:<br>tap Share (□↑) → Add to Home Screen
+    </div>
+
     <!-- Game engine (unchanged) -->
-    <script type="module" src="src/main.js?v=4"></script>
+    <script type="module" src="src/main.js?v=5"></script>
 
     <!-- Mobile layer — only activates on touch devices, desktop never sees it -->
     <script>
@@ -141,22 +145,8 @@
       if (fsBtn) {
         fsBtn.addEventListener('touchstart', function(e) {
           e.preventDefault();
-          var el = document.documentElement;
-          if (!document.fullscreenElement) {
-            var rfs = el.requestFullscreen || el.webkitRequestFullscreen;
-            if (rfs) {
-              var request = rfs.call(el);
-              if (request && typeof request.then === 'function') {
-                request.then(function() {
-                  try { screen.orientation.lock('landscape').catch(function(){}); } catch(e) {}
-                }).catch(function(){});
-              } else {
-                try { screen.orientation.lock('landscape').catch(function(){}); } catch(e) {}
-              }
-            }
-          } else {
-            var efs = document.exitFullscreen || document.webkitExitFullscreen;
-            if (efs) efs.call(document);
+          if (window.__toggleFullscreen) {
+            window.__toggleFullscreen();
           }
         }, { passive: false });
       }
@@ -176,7 +166,59 @@
     </script>
 
     <script>
-    document.getElementById('fullscreen-btn').addEventListener('click', function() {
+    var fullscreenBtn = document.getElementById('fullscreen-btn');
+    var touchFullscreenBtn = document.getElementById('fs-btn');
+    var iosHint = document.getElementById('ios-fullscreen-hint');
+    var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true;
+    var iosHintTimer = 0;
+
+    function showIOSFullscreenHint() {
+      if (!iosHint) return;
+      if (iosHintTimer) {
+        clearTimeout(iosHintTimer);
+      }
+      iosHint.style.display = 'block';
+      iosHint.style.opacity = '1';
+      iosHintTimer = setTimeout(function() {
+        iosHint.style.opacity = '0';
+        setTimeout(function() {
+          iosHint.style.display = 'none';
+        }, 250);
+      }, 4000);
+    }
+
+    function updateFSBtn() {
+      if (!fullscreenBtn) return;
+      if (isStandalone) {
+        fullscreenBtn.style.display = 'none';
+        if (touchFullscreenBtn) {
+          touchFullscreenBtn.style.display = 'none';
+        }
+        return;
+      }
+      fullscreenBtn.style.display = '';
+      if (touchFullscreenBtn) {
+        touchFullscreenBtn.style.display = '';
+      }
+      if (isIOS) {
+        fullscreenBtn.textContent = 'ADD TO HOME SCREEN FOR FULLSCREEN';
+        return;
+      }
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        fullscreenBtn.textContent = '✕ EXIT FULLSCREEN';
+      } else {
+        fullscreenBtn.textContent = '⛶ FULLSCREEN';
+      }
+    }
+
+    function toggleFullscreen() {
+      if (isIOS) {
+        showIOSFullscreenHint();
+        return;
+      }
       var el = document.documentElement;
       if (!document.fullscreenElement && !document.webkitFullscreenElement) {
         var rfs = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -194,18 +236,16 @@
         var efs = document.exitFullscreen || document.webkitExitFullscreen;
         if (efs) efs.call(document);
       }
+    }
+
+    window.__toggleFullscreen = toggleFullscreen;
+    fullscreenBtn.addEventListener('click', function() {
+      toggleFullscreen();
     });
 
     document.addEventListener('fullscreenchange', updateFSBtn);
     document.addEventListener('webkitfullscreenchange', updateFSBtn);
-    function updateFSBtn() {
-      var btn = document.getElementById('fullscreen-btn');
-      if (document.fullscreenElement || document.webkitFullscreenElement) {
-        btn.textContent = '✕ EXIT FULLSCREEN';
-      } else {
-        btn.textContent = '⛶ FULLSCREEN';
-      }
-    }
+    updateFSBtn();
     </script>
 
     <!-- Service Worker for offline play -->

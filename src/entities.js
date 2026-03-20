@@ -1,4 +1,4 @@
-import { ENTITY_STATES } from "./animation.js?v=4";
+import { ENTITY_STATES } from "./animation.js?v=5";
 import { CONFIG, PELLETS } from "./constants.js?v=6";
 import { clamp, rectsOverlap } from "./utils.js?v=5";
 

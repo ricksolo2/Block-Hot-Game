@@ -47,6 +47,10 @@
           <button class="t-btn t-sm" data-key="KeyP">⏸</button>
           <button class="t-btn t-sm" id="fs-btn">⛶</button>
         </div>
+        <div class="t-overlay" id="touch-overlay">
+          <button class="t-overlay-btn t-continue" data-key="Enter">CONTINUE ▶</button>
+          <button class="t-overlay-btn t-menu" data-key="Escape">MENU</button>
+        </div>
       </div>
     </main>
 
@@ -93,6 +97,33 @@
         });
       });
 
+      // Show Continue/Menu buttons during non-playing states
+      var overlay = document.getElementById('touch-overlay');
+      if (overlay) {
+        overlay.querySelectorAll('.t-overlay-btn[data-key]').forEach(function(btn) {
+          var key = btn.getAttribute('data-key');
+          btn.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            btn.classList.add('active');
+            fireKey(key, 'keydown');
+            setTimeout(function() {
+              fireKey(key, 'keyup');
+              btn.classList.remove('active');
+            }, 100);
+          }, { passive: false });
+        });
+
+        setInterval(function() {
+          var gameState = window.__blockhot_state || '';
+          if (gameState === 'menu' || gameState === 'complete' ||
+              gameState === 'gameover' || gameState === 'instructions') {
+            overlay.classList.add('visible');
+          } else {
+            overlay.classList.remove('visible');
+          }
+        }, 300);
+      }
+
       // Fullscreen + landscape lock
       var fsBtn = document.getElementById('fs-btn');
       if (fsBtn) {
@@ -101,8 +132,16 @@
           var el = document.documentElement;
           if (!document.fullscreenElement) {
             var rfs = el.requestFullscreen || el.webkitRequestFullscreen;
-            if (rfs) rfs.call(el);
-            try { screen.orientation.lock('landscape').catch(function(){}); } catch(e) {}
+            if (rfs) {
+              var request = rfs.call(el);
+              if (request && typeof request.then === 'function') {
+                request.then(function() {
+                  try { screen.orientation.lock('landscape').catch(function(){}); } catch(e) {}
+                }).catch(function(){});
+              } else {
+                try { screen.orientation.lock('landscape').catch(function(){}); } catch(e) {}
+              }
+            }
           } else {
             var efs = document.exitFullscreen || document.webkitExitFullscreen;
             if (efs) efs.call(document);

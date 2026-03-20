@@ -1080,6 +1080,7 @@ function createMusic(path, baseVolume = 1) {
   audio.preload = "auto";
   audio.load();
   audio.baseVolume = baseVolume;
+  audio._masterVolume = 0.6;
   return audio;
 }
 
@@ -1090,6 +1091,7 @@ function createSfx(path, options = {}) {
     const clip = new Audio(resolveUrl(path));
     clip.preload = "auto";
     clip.load();
+    clip._masterVolume = 0.6;
     return clip;
   });
   let index = 0;
@@ -1099,6 +1101,7 @@ function createSfx(path, options = {}) {
     setVolume(masterVolume) {
       const volume = masterVolume * baseVolume;
       clips.forEach((clip) => {
+        clip._masterVolume = masterVolume;
         clip.volume = volume;
       });
     },
@@ -1106,18 +1109,20 @@ function createSfx(path, options = {}) {
       if (primed) return;
       primed = true;
       clips.forEach((clip) => {
-        const prevVolume = clip.volume;
         clip.volume = 0;
         clip.play()
           .then(() => {
             clip.pause();
             clip.currentTime = 0;
-            clip.volume = prevVolume;
           })
-          .catch(() => {
-            clip.volume = prevVolume;
-          });
+          .catch(() => {});
       });
+      setTimeout(() => {
+        const masterVolume = clips[0]?._masterVolume || 0.6;
+        clips.forEach((clip) => {
+          clip.volume = masterVolume * baseVolume;
+        });
+      }, 200);
     },
     play() {
       const clip = clips[index];
@@ -1142,6 +1147,7 @@ function resolveUrl(path) {
 function applyAudioState(music, sfx, state, extraMusic = []) {
   const volume = state.muted ? 0 : state.volume;
   [music, ...extraMusic].filter(Boolean).forEach((track) => {
+    track._masterVolume = volume;
     track.volume = volume * (track.baseVolume ?? 1);
   });
   if (sfx) {
@@ -1155,13 +1161,30 @@ function setupAudioStart(audio, sfx) {
   const start = () => {
     if (started) return;
     started = true;
-    if (audio) {
-      audio.play().catch(() => {
-        started = false;
+    if (sfx) {
+      Object.values(sfx).forEach((sound) => {
+        if (sound.prime) sound.prime();
       });
     }
-    if (sfx) {
-      Object.values(sfx).forEach((sound) => sound.prime && sound.prime());
+    if (audio) {
+      audio.volume = 0;
+      audio.play()
+        .then(() => {
+          let fadeVol = 0;
+          const targetVol = audio.baseVolume * (audio._masterVolume || 0.6);
+          const fadeInterval = setInterval(() => {
+            fadeVol += 0.05;
+            if (fadeVol >= targetVol) {
+              audio.volume = targetVol;
+              clearInterval(fadeInterval);
+            } else {
+              audio.volume = fadeVol;
+            }
+          }, 50);
+        })
+        .catch(() => {
+          started = false;
+        });
     }
   };
   window.addEventListener("keydown", start, { once: true });

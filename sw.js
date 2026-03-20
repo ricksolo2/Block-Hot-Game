@@ -1,4 +1,4 @@
-const CACHE = 'blockhot-v2';
+const CACHE = 'blockhot-v3';
 
 const CORE = [
   '/',

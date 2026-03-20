@@ -28,6 +28,7 @@ export class Game {
     this.canvas = canvas;
     this.ctx = ctx;
     this.input = input;
+    this.isMobile = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
     this.levels = options.levels || null;
     this.levelIndex = options.levelIndex || 0;
     const levelData =
@@ -103,6 +104,7 @@ export class Game {
 
     this.setupBoss();
     this.spawnInitialEnemies();
+    this.syncPublicState();
     this.resize();
   }
 
@@ -376,6 +378,7 @@ export class Game {
       } else if (this.input.wasPressed("KeyI")) {
         this.state = "instructions";
       }
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
@@ -386,6 +389,7 @@ export class Game {
       } else if (this.input.wasPressed("Enter")) {
         this.state = "playing";
       }
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
@@ -400,6 +404,7 @@ export class Game {
       } else if (this.input.wasPressed("Escape")) {
         this.returnToMenu();
       }
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
@@ -410,6 +415,7 @@ export class Game {
       } else if (this.input.wasPressed("Escape")) {
         this.returnToMenu();
       }
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
@@ -418,6 +424,7 @@ export class Game {
       if (this.input.wasPressed("KeyP") || this.input.wasPressed("Escape")) {
         this.state = "playing";
         this.pauseTimer = 0;
+        this.syncPublicState();
         this.input.clearPressed();
         return;
       }
@@ -425,18 +432,21 @@ export class Game {
       if (this.pauseTimer <= 0) {
         this.returnToMenu();
       }
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
 
     if (this.state === "cutscene") {
       this.updateCutscene(dt);
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
 
     if (this.state === "bossfight" && this.bossDefeatActive) {
       this.updateBossDefeatSequence(dt);
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
@@ -448,11 +458,13 @@ export class Game {
     if (this.input.wasPressed("KeyP")) {
       this.state = "paused";
       this.pauseTimer = CONFIG.pauseDuration;
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
 
     if (this.hitStop.update(dt)) {
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
@@ -512,6 +524,7 @@ export class Game {
     this.handlePickups();
     this.handleSafehouses();
     if (this.state === "playing" && this.maybeStartBossCutscene()) {
+      this.syncPublicState();
       this.input.clearPressed();
       return;
     }
@@ -529,7 +542,12 @@ export class Game {
     this.updateCamera();
     this.handleOutOfBounds();
 
+    this.syncPublicState();
     this.input.clearPressed();
+  }
+
+  syncPublicState() {
+    window.__blockhot_state = this.state;
   }
 
   updateCamera() {
@@ -1688,8 +1706,12 @@ export class Game {
         )
     ).length;
 
-    const targetCops = clamp(1 + this.heatStars, 1, 5);
-    const targetNinjas = clamp(2 + Math.floor(this.heatStars / 2), 2, 5);
+    const targetCops = clamp(1 + this.heatStars, 1, this.isMobile ? 3 : 5);
+    const targetNinjas = clamp(
+      2 + Math.floor(this.heatStars / 2),
+      2,
+      this.isMobile ? 3 : 5
+    );
 
     this.copSpawnTimer -= dt;
     if (this.copSpawnTimer <= 0) {
@@ -2102,6 +2124,12 @@ export class Game {
       if (coin.collected) continue;
       const hover = Math.sin(this.time * 6 + coin.x * 0.1) * 0.6;
       const drawY = coin.y + hover;
+      if (!this.isMobile) {
+        ctx.fillStyle = "rgba(242, 214, 75, 0.15)";
+        ctx.beginPath();
+        ctx.arc(coin.x, drawY, coin.r + 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.fillStyle = "#0b0b0b";
       ctx.beginPath();
       ctx.arc(coin.x, drawY, coin.r + 1, 0, Math.PI * 2);
@@ -2233,6 +2261,16 @@ export class Game {
 
   drawProjectiles(ctx) {
     for (const projectile of this.projectiles) {
+      if (!this.isMobile && projectile.trail?.length) {
+        for (let i = 0; i < projectile.trail.length; i += 1) {
+          const point = projectile.trail[i];
+          const alpha = 1 - i / projectile.trail.length;
+          ctx.globalAlpha = alpha * 0.35;
+          ctx.fillStyle = projectile.pellet.color;
+          ctx.fillRect(point.x, point.y, projectile.w, projectile.h);
+        }
+        ctx.globalAlpha = 1;
+      }
       ctx.fillStyle = projectile.pellet.color;
       ctx.fillRect(projectile.x, projectile.y, projectile.w, projectile.h);
     }
@@ -2702,8 +2740,10 @@ export class Game {
     const maxSpeed = options.maxSpeed ?? 120;
     const life = options.life ?? 0.3;
     const size = options.size ?? 2;
+    const maxParticles = this.isMobile ? 80 : 200;
 
     for (let i = 0; i < count; i += 1) {
+      if (this.particles.length >= maxParticles) break;
       const angle = Math.random() * Math.PI * 2;
       const speed = minSpeed + Math.random() * (maxSpeed - minSpeed);
       this.particles.push({

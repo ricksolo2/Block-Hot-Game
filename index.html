@@ -2,38 +2,133 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <title>BlockHot</title>
+
+    <!-- Mobile / PWA (ignored by desktop browsers) -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Block Hot">
+    <meta name="theme-color" content="#0e0e0e">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="description" content="Block Hot — A Chicago-themed retro 2D action platformer">
+    <link rel="manifest" href="manifest.json">
+
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
+
+    <!-- Portrait rotation warning — only visible on mobile in portrait -->
+    <div id="rotate-prompt">
+      <div class="rotate-inner">
+        <div class="rotate-phone">📱</div>
+        <p>Rotate to landscape to play</p>
+      </div>
+    </div>
+
     <main id="game-wrap">
       <canvas id="game" width="640" height="360" aria-label="BlockHot game canvas" role="img"></canvas>
       <div id="loading">Loading...</div>
+
+      <!-- Touch controls — injected by JS only on touch devices -->
+      <div id="touch-ui" class="touch-hidden">
+        <div class="t-dpad">
+          <button class="t-btn t-left" data-key="ArrowLeft">◀</button>
+          <button class="t-btn t-right" data-key="ArrowRight">▶</button>
+        </div>
+        <div class="t-actions">
+          <button class="t-btn t-swap" data-key="KeyE">↻</button>
+          <button class="t-btn t-dash" data-key="KeyC">C</button>
+          <button class="t-btn t-shoot" data-key="KeyX">B</button>
+          <button class="t-btn t-jump" data-key="Space">A</button>
+        </div>
+        <div class="t-top">
+          <button class="t-btn t-sm" data-key="KeyP">⏸</button>
+          <button class="t-btn t-sm" id="fs-btn">⛶</button>
+        </div>
+      </div>
     </main>
-    <script type="module">
-      const loading = document.getElementById("loading");
 
-      const showBootError = (error) => {
-        const detail =
-          error && typeof error === "object"
-            ? error.message || error.reason?.message || String(error.reason || error)
-            : String(error);
-        loading.textContent = `Failed to load game: ${detail}`;
-      };
+    <!-- Game engine (unchanged) -->
+    <script type="module" src="src/main.js?v=4"></script>
 
-      window.addEventListener("error", (event) => {
-        showBootError(event.error || event.message);
+    <!-- Mobile layer — only activates on touch devices, desktop never sees it -->
+    <script>
+    (function() {
+      const hasTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+      if (!hasTouch) return; // Desktop: stop here, nothing changes
+
+      // Show touch UI
+      const ui = document.getElementById('touch-ui');
+      ui.classList.remove('touch-hidden');
+      document.body.classList.add('has-touch');
+
+      // Touch → keyboard bridge
+      function fireKey(code, type) {
+        window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+      }
+
+      const held = new Map();
+      ui.querySelectorAll('.t-btn[data-key]').forEach(function(btn) {
+        var key = btn.getAttribute('data-key');
+
+        btn.addEventListener('touchstart', function(e) {
+          e.preventDefault();
+          btn.classList.add('active');
+          fireKey(key, 'keydown');
+          held.set(btn, key);
+          if (navigator.vibrate) navigator.vibrate(12);
+        }, { passive: false });
+
+        btn.addEventListener('touchend', function(e) {
+          e.preventDefault();
+          btn.classList.remove('active');
+          if (held.has(btn)) { fireKey(held.get(btn), 'keyup'); held.delete(btn); }
+        }, { passive: false });
+
+        btn.addEventListener('touchcancel', function() {
+          btn.classList.remove('active');
+          if (held.has(btn)) { fireKey(held.get(btn), 'keyup'); held.delete(btn); }
+        });
       });
 
-      window.addEventListener("unhandledrejection", (event) => {
-        showBootError(event.reason || "Unhandled promise rejection");
-      });
+      // Fullscreen + landscape lock
+      var fsBtn = document.getElementById('fs-btn');
+      if (fsBtn) {
+        fsBtn.addEventListener('touchstart', function(e) {
+          e.preventDefault();
+          var el = document.documentElement;
+          if (!document.fullscreenElement) {
+            var rfs = el.requestFullscreen || el.webkitRequestFullscreen;
+            if (rfs) rfs.call(el);
+            try { screen.orientation.lock('landscape').catch(function(){}); } catch(e) {}
+          } else {
+            var efs = document.exitFullscreen || document.webkitExitFullscreen;
+            if (efs) efs.call(document);
+          }
+        }, { passive: false });
+      }
 
-      import("./src/main.js?v=18").catch((error) => {
-        console.error("Module import failed.", error);
-        showBootError(error);
+      // Prevent zoom/scroll on canvas
+      document.getElementById('game').addEventListener('touchstart', function(e) {
+        e.preventDefault();
+      }, { passive: false });
+
+      // First touch starts game (unlocks audio)
+      document.addEventListener('touchstart', function first() {
+        fireKey('Enter', 'keydown');
+        setTimeout(function() { fireKey('Enter', 'keyup'); }, 60);
+        document.removeEventListener('touchstart', first);
       });
+    })();
+    </script>
+
+    <!-- Service Worker for offline play -->
+    <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    }
     </script>
   </body>
 </html>

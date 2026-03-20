@@ -128,14 +128,23 @@ export class Game {
   }
 
   resize() {
-    const scale = Math.max(
-      1,
-      Math.floor(
-        Math.min(window.innerWidth / CONFIG.width, window.innerHeight / CONFIG.height)
-      )
-    );
-    this.canvas.style.width = `${CONFIG.width * scale}px`;
-    this.canvas.style.height = `${CONFIG.height * scale}px`;
+    const isMobile = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+    if (isMobile) {
+      const scaleX = window.innerWidth / CONFIG.width;
+      const scaleY = window.innerHeight / CONFIG.height;
+      const scale = Math.min(scaleX, scaleY);
+      this.canvas.style.width = `${Math.floor(CONFIG.width * scale)}px`;
+      this.canvas.style.height = `${Math.floor(CONFIG.height * scale)}px`;
+    } else {
+      const scale = Math.max(
+        1,
+        Math.floor(
+          Math.min(window.innerWidth / CONFIG.width, window.innerHeight / CONFIG.height)
+        )
+      );
+      this.canvas.style.width = `${CONFIG.width * scale}px`;
+      this.canvas.style.height = `${CONFIG.height * scale}px`;
+    }
   }
 
   spawnInitialEnemies() {

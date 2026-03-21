@@ -1463,24 +1463,8 @@ function createSfx(path, options = {}) {
     prime() {
       if (primed) return;
       primed = true;
-      clips.forEach((clip) => {
-        clip.volume = 0;
-        clip._nativePlay()
-          .then(() => {
-            clip.pause();
-            clip.currentTime = 0;
-          })
-          .catch(() => {});
-      });
-      setTimeout(() => {
-        const masterVolume =
-          clips[0] && clips[0]._masterVolume !== undefined && clips[0]._masterVolume !== null
-            ? clips[0]._masterVolume
-            : 0.6;
-        clips.forEach((clip) => {
-          clip.volume = masterVolume * baseVolume;
-        });
-      }, 200);
+      // Intentionally no-op. Modern browsers only need the audio context
+      // unlocked by a user gesture; pre-playing every clip causes audible bursts.
     },
     play() {
       if (!audioManager.unlocked) return;
@@ -1561,11 +1545,6 @@ function setupAudioStart(audio, sfx) {
     started = true;
     audioManager.unlock()
       .then(function() {
-        if (sfx) {
-          Object.values(sfx).forEach((sound) => {
-            if (sound.prime) sound.prime();
-          });
-        }
         startMusic(audio);
       })
       .catch(() => {

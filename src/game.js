@@ -48,6 +48,8 @@ export class Game {
     this.powerUpSprites = options.powerUpSprites || null;
     this.tileSprites = options.tileSprites || null;
     this.sfx = options.sfx || null;
+    this.audioManager = options.audioManager || null;
+    this.startMusic = options.startMusic || null;
     this.time = 0;
     this.shakeTime = 0;
     this.shakeDuration = 0;
@@ -2003,7 +2005,13 @@ export class Game {
       }
       if (this.bossMusic && this.bossMusic.paused) {
         this.bossMusic.currentTime = 0;
-        this.bossMusic.play().catch(() => {});
+        if (this.startMusic) {
+          this.startMusic(this.bossMusic);
+        } else if (this.audioManager) {
+          this.audioManager.ensurePlaying(this.bossMusic);
+        } else {
+          this.bossMusic.play().catch(() => {});
+        }
       }
       return;
     }
@@ -2013,7 +2021,13 @@ export class Game {
       this.bossMusic.currentTime = 0;
     }
     if (this.music && this.music.paused) {
-      this.music.play().catch(() => {});
+      if (this.startMusic) {
+        this.startMusic(this.music);
+      } else if (this.audioManager) {
+        this.audioManager.ensurePlaying(this.music);
+      } else {
+        this.music.play().catch(() => {});
+      }
     }
   }
 

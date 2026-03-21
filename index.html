@@ -30,7 +30,18 @@
     <main id="game-wrap">
       <button id="fullscreen-btn" aria-label="Toggle Fullscreen">⛶ FULLSCREEN</button>
       <canvas id="game" width="640" height="360" aria-label="BlockHot game canvas" role="img"></canvas>
-      <div id="loading">Loading...</div>
+      <div id="loading">
+        <div class="load-title">BLOCK HOT</div>
+        <div class="load-bar-wrap">
+          <div class="load-bar" id="load-bar"></div>
+        </div>
+        <div class="load-text" id="load-text">Loading...</div>
+      </div>
+      <div id="ios-fs-hint" style="display:none; position:fixed; bottom:100px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.9); color:#e6e6e6; padding:14px 24px; border-radius:10px; font:14px monospace; text-align:center; z-index:10000; border:1px solid rgba(255,255,255,0.2); max-width:300px;">
+        For true fullscreen on iPhone:<br><br>
+        Tap <strong style="color:#3fa9f5">Share (□↑)</strong> then<br>
+        <strong style="color:#5ad96b">Add to Home Screen</strong>
+      </div>
 
       <!-- Touch controls — injected by JS only on touch devices -->
       <div id="touch-ui" class="touch-hidden">
@@ -55,12 +66,8 @@
       </div>
     </main>
 
-    <div id="ios-fullscreen-hint" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.85); color:#e6e6e6; padding:12px 20px; border-radius:8px; font:13px monospace; text-align:center; z-index:9999; border:1px solid rgba(255,255,255,0.2); opacity:0; transition:opacity 0.25s ease;">
-      For fullscreen:<br>tap Share (□↑) → Add to Home Screen
-    </div>
-
     <!-- Game engine (unchanged) -->
-    <script type="module" src="src/main.js?v=5"></script>
+    <script type="module" src="src/main.js?v=9"></script>
 
     <!-- Mobile layer — only activates on touch devices, desktop never sees it -->
     <script>
@@ -168,27 +175,12 @@
     <script>
     var fullscreenBtn = document.getElementById('fullscreen-btn');
     var touchFullscreenBtn = document.getElementById('fs-btn');
-    var iosHint = document.getElementById('ios-fullscreen-hint');
+    var iosHint = document.getElementById('ios-fs-hint');
     var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     var isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
       window.navigator.standalone === true;
     var iosHintTimer = 0;
-
-    function showIOSFullscreenHint() {
-      if (!iosHint) return;
-      if (iosHintTimer) {
-        clearTimeout(iosHintTimer);
-      }
-      iosHint.style.display = 'block';
-      iosHint.style.opacity = '1';
-      iosHintTimer = setTimeout(function() {
-        iosHint.style.opacity = '0';
-        setTimeout(function() {
-          iosHint.style.display = 'none';
-        }, 250);
-      }, 4000);
-    }
 
     function updateFSBtn() {
       if (!fullscreenBtn) return;
@@ -204,7 +196,7 @@
         touchFullscreenBtn.style.display = '';
       }
       if (isIOS) {
-        fullscreenBtn.textContent = 'ADD TO HOME SCREEN FOR FULLSCREEN';
+        fullscreenBtn.textContent = '⛶ FULL VIEW';
         return;
       }
       if (document.fullscreenElement || document.webkitFullscreenElement) {
@@ -215,8 +207,18 @@
     }
 
     function toggleFullscreen() {
+      if (isStandalone) return;
       if (isIOS) {
-        showIOSFullscreenHint();
+        window.scrollTo(0, 1);
+        if (iosHint) {
+          iosHint.style.display = 'block';
+          if (iosHintTimer) {
+            clearTimeout(iosHintTimer);
+          }
+          iosHintTimer = setTimeout(function() {
+            iosHint.style.display = 'none';
+          }, 5000);
+        }
         return;
       }
       var el = document.documentElement;

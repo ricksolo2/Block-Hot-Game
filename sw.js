@@ -1,12 +1,12 @@
-const CACHE = 'blockhot-v4';
+const CACHE = 'blockhot-v8';
 
 const CORE = [
   '/',
   '/index.html',
   '/styles.css',
   '/manifest.json',
-  '/src/main.js?v=5',
-  '/src/game.js?v=18',
+  '/src/main.js?v=9',
+  '/src/game.js?v=20',
   '/src/entities.js?v=14',
   '/src/animation.js?v=5',
   '/src/constants.js?v=6',

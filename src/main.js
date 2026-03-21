@@ -1,4 +1,4 @@
-import { Game } from "./game.js?v=18";
+import { Game } from "./game.js?v=20";
 import {
   ENTITY_STATES,
   createClip,
@@ -14,49 +14,271 @@ const ctx = canvas.getContext("2d", { alpha: false });
 ctx.imageSmoothingEnabled = false;
 
 const loadingEl = document.getElementById("loading");
+const loadBarEl = document.getElementById("load-bar");
+const loadTextEl = document.getElementById("load-text");
+
+const audioManager = {
+  ctx: null,
+  unlocked: false,
+  masterVolume: 0.6,
+  pendingUnlock: [],
+
+  init() {
+    if (this.ctx) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.ctx = AC ? new AC() : null;
+    } catch (error) {
+      this.ctx = null;
+    }
+  },
+
+  unlock() {
+    if (this.unlocked) {
+      return Promise.resolve();
+    }
+    if (!this.ctx) {
+      this.init();
+    }
+
+    const manager = this;
+    const finalize = function() {
+      manager.unlocked = true;
+      const pending = manager.pendingUnlock.slice();
+      manager.pendingUnlock.length = 0;
+      pending.forEach(function(fn) {
+        try {
+          fn();
+        } catch (error) {
+          console.warn("Deferred audio play failed.", error);
+        }
+      });
+    };
+
+    if (!this.ctx) {
+      finalize();
+      return Promise.resolve();
+    }
+
+    if (this.ctx.state === "suspended") {
+      return this.ctx.resume()
+        .then(function() {
+          finalize();
+        })
+        .catch(function() {
+          finalize();
+        });
+    }
+
+    finalize();
+    return Promise.resolve();
+  },
+
+  ensurePlaying(audioEl) {
+    if (!audioEl) return Promise.resolve();
+    const playFn = audioEl._nativePlay || audioEl.play.bind(audioEl);
+    if (this.unlocked) {
+      return playFn().catch(function() {});
+    }
+    this.pendingUnlock.push(function() {
+      playFn().catch(function() {});
+    });
+    return Promise.resolve();
+  },
+};
+
+audioManager.init();
+
+function unlockAudio() {
+  audioManager.unlock();
+}
+
+window.addEventListener("touchstart", unlockAudio, {
+  once: false,
+  passive: true,
+});
+window.addEventListener("touchend", unlockAudio, {
+  once: false,
+  passive: true,
+});
+window.addEventListener("click", unlockAudio, {
+  once: false,
+  passive: true,
+});
+window.addEventListener("keydown", unlockAudio, {
+  once: false,
+  passive: true,
+});
+
+const LEVEL_ASSET_SPECS = [
+  { key: "level1", path: "../levels/level1.json", label: "Level 1" },
+  { key: "level2", path: "../levels/level2.json", label: "Level 2" },
+  { key: "level3", path: "../levels/level3.json", label: "Level 3" },
+  { key: "level4", path: "../levels/level4.json", label: "Level 4" },
+];
+
+const BACKGROUND_ASSET_SPECS = [
+  { key: "background1", path: "../assets/background.png", label: "Background 1", kind: "image" },
+  { key: "background2", path: "../assets/Level 2 background .png", label: "Background 2", kind: "image" },
+  { key: "background3Primary", path: "../assets/Level 3 Background .png", label: "Background 3", kind: "image" },
+  { key: "background3Alt", path: "../assets/Level 3 background .png", label: "Background 3 Alt", kind: "image" },
+  { key: "background3Fallback", path: "../assets/O-Block Background.png", label: "Background 3 Fallback", kind: "image" },
+  { key: "background4", path: "../assets/level 4 background.png", label: "Background 4", kind: "image" },
+  { key: "menuImage", path: "../assets/Loading Screen.png", label: "Menu Screen", kind: "image" },
+];
+
+const PLAYER_ASSET_SPECS = [
+  { key: "idleRight", path: "../assets/MC idle standing right.jpg", label: "MC Idle Right", kind: "sprite" },
+  { key: "idleLeft", path: "../assets/MC idle standing left.jpg", label: "MC Idle Left", kind: "sprite" },
+  { key: "runRight", path: "../assets/MC running right (1) jpg.jpg", label: "MC Run Right", kind: "sprite" },
+  { key: "runLeftA", path: "../assets/MC running left (1).jpg", label: "MC Run Left 1", kind: "sprite" },
+  { key: "runLeftB", path: "../assets/MC running left-2 .jpg", label: "MC Run Left 2", kind: "sprite" },
+  { key: "jumpLeftSingle", path: "../assets/MC jumping .jpg", label: "MC Jump Left", kind: "sprite" },
+  { key: "jumpRightSingle", path: "../assets/MC jumping right.png", label: "MC Jump Right", kind: "sprite" },
+  { key: "jumpSheet", path: "../assets/Gemini_Generated_Image_ixbq8gixbq8gixbq.png", label: "MC Jump Sheet", kind: "image" },
+  { key: "gunReady", path: "../assets/MC with Gun (1) .jpg", label: "MC Gun Ready", kind: "sprite" },
+  { key: "shootRight", path: "../assets/MC Shooting right.jpg", label: "MC Shooting", kind: "sprite" },
+];
+
+const ENEMY_ASSET_SPECS = [
+  { key: "ninjaMovement", path: "../assets/Ninja_attacker_movement.png", label: "Ninja Movement", kind: "image" },
+  { key: "ninja", path: "../assets/Ninja Attacker.png", label: "Ninja Idle", kind: "sprite" },
+  { key: "cop", path: "../assets/Police Character .png", label: "Police", kind: "sprite" },
+  { key: "snake", path: "../assets/Snake in Grass.png", label: "Snake", kind: "sprite" },
+  { key: "snakeIdleSheet", path: "../assets/Snake_in_grass_idle.png", label: "Snake Idle Sheet", kind: "image" },
+  { key: "snakeAttackSheet", path: "../assets/Snake_in_grass_attack.png", label: "Snake Attack Sheet", kind: "image" },
+  { key: "redNinja", path: "../assets/Red Ninja - L2 .png", label: "Red Ninja", kind: "sprite" },
+  { key: "blueNinja", path: "../assets/Blue Ninja - L2.png", label: "Blue Ninja", kind: "sprite" },
+  { key: "redNinjaAttack", path: "../assets/Red Ninja Attacking .png", label: "Red Ninja Attack", kind: "sprite" },
+  { key: "blueNinjaAttack", path: "../assets/Blue ninja attacking .png", label: "Blue Ninja Attack", kind: "sprite" },
+  { key: "swatLegacy", path: "../assets/Swat Cops - L2.png", label: "SWAT Legacy", kind: "sprite" },
+  { key: "swatIdle", path: "../assets/Swat idle standing.png", label: "SWAT Idle", kind: "sprite" },
+  { key: "swatWalkLeft", path: "../assets/Swat walking left.png", label: "SWAT Walk Left", kind: "sprite" },
+  { key: "swatWalkRight", path: "../assets/Swat walking right.png", label: "SWAT Walk Right", kind: "sprite" },
+  { key: "swatShootLeft", path: "../assets/Swat shooting left.png", label: "SWAT Shoot Left", kind: "sprite" },
+  { key: "swatShootRight", path: "../assets/Swat shooting right.png", label: "SWAT Shoot Right", kind: "sprite" },
+  { key: "swatLegacyShootLeft", path: "../assets/Swat with Gub left.png", label: "SWAT Gun Left", kind: "sprite" },
+  { key: "swatLegacyShootRight", path: "../assets/Swat with Gun right.png", label: "SWAT Gun Right", kind: "sprite" },
+  { key: "bulldogMovement", path: "../assets/bulldog_movement.png", label: "Bulldog Movement", kind: "image" },
+  { key: "bulldogAttack", path: "../assets/bulldog_attack.png", label: "Bulldog Attack", kind: "image" },
+  { key: "bulldog", path: "../assets/Bulldog - L2.png", label: "Bulldog", kind: "sprite" },
+];
+
+const BOSS_ASSET_SPECS = [
+  { key: "idlePrimary", path: "../assets/Boss Twan .png", label: "Boss Idle", kind: "sprite" },
+  { key: "idleRight", path: "../assets/Boss_Enforcer.png", label: "Boss Right", kind: "sprite" },
+  { key: "idleLeft", path: "../assets/Boss Twan - facing left.jpg", label: "Boss Left", kind: "sprite" },
+  { key: "walkCenter", path: "../assets/Boss Twan - walking.jpg", label: "Boss Walk Center", kind: "sprite" },
+  { key: "walkRightA", path: "../assets/Boss Twan walking - right.jpg", label: "Boss Walk Right 1", kind: "sprite" },
+  { key: "walkRightB", path: "../assets/Boss Twan walking -  right (2).jpg", label: "Boss Walk Right 2", kind: "sprite" },
+  { key: "walkLeftA", path: "../assets/Boss Twan walking -left.jpg", label: "Boss Walk Left", kind: "sprite" },
+  { key: "chargeLeftA", path: "../assets/Boss Twan - charging left (1).jpg", label: "Boss Charge Left 1", kind: "sprite" },
+  { key: "chargeLeftB", path: "../assets/Boss Twan - charging left (2).jpg", label: "Boss Charge Left 2", kind: "sprite" },
+  { key: "swipeLeft", path: "../assets/Boss Twan punching - left .jpg", label: "Boss Punch Left", kind: "sprite" },
+  { key: "swipeRight", path: "../assets/Boss Twan punching - right.jpg", label: "Boss Punch Right", kind: "sprite" },
+  { key: "shootLeft", path: "../assets/Boss Twan - shooting left.png", label: "Boss Shoot Left", kind: "sprite" },
+  { key: "shootRight", path: "../assets/Boss Twan - shooting right.png", label: "Boss Shoot Right", kind: "sprite" },
+  { key: "gunLeft", path: "../assets/Boss Twan - with gun.png", label: "Boss Gun Left", kind: "sprite" },
+  { key: "gunRight", path: "../assets/boss Twan - with gun - right.png", label: "Boss Gun Right", kind: "sprite" },
+];
+
+const TILE_ASSET_SPECS = [
+  { key: "grass", path: "../assets/Grass .png", label: "Grass Tile", kind: "sprite" },
+];
+
+const POWER_UP_ASSET_SPECS = [
+  { key: "gun", path: "../assets/Gun power up.png", label: "Gun Powerup", kind: "sprite" },
+  { key: "health", path: "../assets/health power up.png", label: "Health Powerup", kind: "sprite" },
+];
+
+const AUDIO_ASSET_SPECS = [
+  { key: "music", path: "../audio/2012 Drill x Lofi Hype.mp3", label: "Stage Music", kind: "music", baseVolume: 0.3 },
+  { key: "bossMusic", path: "../audio/Boss Level Drill (Take 2).mp3", label: "Boss Music", kind: "music", baseVolume: 0.38 },
+  { key: "gun", path: "../audio/GUNPis-Generate_a_20-second-Elevenlabs.mp3", label: "Gun SFX", kind: "sfx", options: { volume: 1, poolSize: 10 } },
+  { key: "coin", path: "../audio/UIAlert-Score_increase_sound-Elevenlabs.mp3", label: "Coin SFX", kind: "sfx", options: { volume: 0.9, poolSize: 8 } },
+  { key: "siren", path: "../audio/VEHMisc-police_sirens-Elevenlabs.mp3", label: "Siren SFX", kind: "sfx", options: { volume: 0.8, poolSize: 2 } },
+  { key: "bust", path: "../audio/Police_saying_Stop_R_#3-1767160089774.mp3", label: "Bust SFX", kind: "sfx", options: { volume: 0.9, poolSize: 2 } },
+  { key: "death", path: "../audio/Man_grunting_when_ge_#1-1767163819478.mp3", label: "Death SFX", kind: "sfx", options: { volume: 0.9, poolSize: 2 } },
+  { key: "snake", path: "../audio/Snake_attacking_#3-1767164227281.mp3", label: "Snake SFX", kind: "sfx", options: { volume: 0.8, poolSize: 4 } },
+  { key: "ninja", path: "../audio/Ninja_attacking_#3-1767164007149.mp3", label: "Ninja SFX", kind: "sfx", options: { volume: 0.8, poolSize: 4 } },
+  { key: "fall", path: "../audio/Man_yelling_loud_whi_#4-1767165390067.mp3", label: "Fall SFX", kind: "sfx", options: { volume: 0.9, poolSize: 2 } },
+  { key: "bulldog", path: "../audio/Bulldog_growling_agg_#4-1767427632987.mp3", label: "Bulldog SFX", kind: "sfx", options: { volume: 0.8, poolSize: 4 } },
+  { key: "bossLaugh", path: "../audio/Boss Laugh sound.mp3", label: "Boss Laugh", kind: "sfx", options: { volume: 0.9, poolSize: 2 } },
+  { key: "bossDrop", path: "../audio/Boss Drop impact sound.mp3", label: "Boss Drop", kind: "sfx", options: { volume: 0.95, poolSize: 2 } },
+  { key: "bossGun", path: "../audio/Boss Gun shooting sound.mp3", label: "Boss Gun", kind: "sfx", options: { volume: 0.95, poolSize: 5 } },
+  { key: "bossHurt", path: "../audio/Boss Injured sound.mp3", label: "Boss Hurt", kind: "sfx", options: { volume: 0.9, poolSize: 4 } },
+];
+
+const TOTAL_ASSET_COUNT =
+  LEVEL_ASSET_SPECS.length +
+  BACKGROUND_ASSET_SPECS.length +
+  PLAYER_ASSET_SPECS.length +
+  ENEMY_ASSET_SPECS.length +
+  BOSS_ASSET_SPECS.length +
+  TILE_ASSET_SPECS.length +
+  POWER_UP_ASSET_SPECS.length +
+  AUDIO_ASSET_SPECS.length;
 
 const input = new Input(window);
 init().catch(function(error) {
   console.error("BlockHot failed to boot.", error);
-  loadingEl.textContent = `Failed to load game: ${error.message || error}`;
+  if (loadBarEl) {
+    loadBarEl.style.width = "100%";
+  }
+  if (loadTextEl) {
+    loadTextEl.textContent = `Failed to load game: ${error.message || error}`;
+  } else {
+    loadingEl.textContent = `Failed to load game: ${error.message || error}`;
+  }
 });
 
 async function init() {
-  const [
-    level1,
-    level2,
-    level3,
-    level4,
-    background1,
-    background2,
-    background3Primary,
-    background3Alt,
-    background3Fallback,
-    background4,
-    menuImage,
-    playerAnimations,
-    enemyAnimations,
-    bossAnimations,
-    tileSprites,
-    powerUpSprites,
-  ] = await Promise.all([
-    loadLevel(resolveUrl("../levels/level1.json")),
-    loadLevel(resolveUrl("../levels/level2.json")),
-    loadLevel(resolveUrl("../levels/level3.json")),
-    loadLevel(resolveUrl("../levels/level4.json")),
-    loadImage("../assets/background.png"),
-    loadImage("../assets/Level 2 background .png"),
-    loadImage("../assets/Level 3 Background .png"),
-    loadImage("../assets/Level 3 background .png"),
-    loadImage("../assets/O-Block Background.png"),
-    loadImage("../assets/level 4 background.png"),
-    loadImage("../assets/Loading Screen.png"),
-    loadPlayerAnimations(),
-    loadEnemyAnimations(),
-    loadBossAnimations(),
-    loadTileSprites(),
-    loadPowerUpSprites(),
-  ]);
+  const progress = createLoadingTracker(TOTAL_ASSET_COUNT);
+
+  await progress.phase("Loading levels...");
+  const levelAssets = await loadLevels(progress);
+
+  await progress.phase("Loading backgrounds...");
+  const backgroundAssets = await loadAssetMap(BACKGROUND_ASSET_SPECS, progress);
+
+  await progress.phase("Loading characters...");
+  const rawPlayerAssets = await loadAssetMap(PLAYER_ASSET_SPECS, progress);
+
+  await progress.phase("Loading enemies...");
+  const rawEnemyAssets = await loadAssetMap(ENEMY_ASSET_SPECS, progress);
+
+  await progress.phase("Loading boss...");
+  const rawBossAssets = await loadAssetMap(BOSS_ASSET_SPECS, progress);
+
+  await progress.phase("Loading pickups...");
+  const rawPowerUpAssets = await loadAssetMap(POWER_UP_ASSET_SPECS, progress);
+
+  await progress.phase("Loading tiles...");
+  const rawTileAssets = await loadAssetMap(TILE_ASSET_SPECS, progress);
+
+  await progress.phase("Loading audio...");
+  const audioAssets = await loadAudioAssets(progress);
+
+  await progress.ready();
+
+  const playerAnimations = await loadPlayerAnimations(rawPlayerAssets);
+  const enemyAnimations = await loadEnemyAnimations(rawEnemyAssets);
+  const bossAnimations = await loadBossAnimations(rawBossAssets);
+  const powerUpSprites = await loadPowerUpSprites(rawPowerUpAssets);
+  const tileSprites = await loadTileSprites(rawTileAssets);
+  await setLoadingStatus("Starting game...");
+
+  const level1 = levelAssets.level1;
+  const level2 = levelAssets.level2;
+  const level3 = levelAssets.level3;
+  const level4 = levelAssets.level4;
+  const background1 = backgroundAssets.background1;
+  const background2 = backgroundAssets.background2;
+  const background3Primary = backgroundAssets.background3Primary;
+  const background3Alt = backgroundAssets.background3Alt;
+  const background3Fallback = backgroundAssets.background3Fallback;
+  const background4 = backgroundAssets.background4;
+  const menuImage = backgroundAssets.menuImage;
   const levels = [
     { level: level1, background: background1 },
     { level: level2, background: background2 || background1 },
@@ -82,62 +304,9 @@ async function init() {
   const enemyScales = buildEnemyScales(enemyAnimations);
   const bossScale = bossBaseHeight ? 42 / bossBaseHeight : 1;
 
-  const music = createMusic("../audio/2012 Drill x Lofi Hype.mp3", 0.3);
-  const bossMusic = createMusic("../audio/Boss Level Drill (Take 2).mp3", 0.38);
-  const sfx = {
-    gun: createSfx("../audio/GUNPis-Generate_a_20-second-Elevenlabs.mp3", {
-      volume: 1,
-      poolSize: 10,
-    }),
-    coin: createSfx("../audio/UIAlert-Score_increase_sound-Elevenlabs.mp3", {
-      volume: 0.9,
-      poolSize: 8,
-    }),
-    siren: createSfx("../audio/VEHMisc-police_sirens-Elevenlabs.mp3", {
-      volume: 0.8,
-      poolSize: 2,
-    }),
-    bust: createSfx("../audio/Police_saying_Stop_R_#3-1767160089774.mp3", {
-      volume: 0.9,
-      poolSize: 2,
-    }),
-    death: createSfx("../audio/Man_grunting_when_ge_#1-1767163819478.mp3", {
-      volume: 0.9,
-      poolSize: 2,
-    }),
-    snake: createSfx("../audio/Snake_attacking_#3-1767164227281.mp3", {
-      volume: 0.8,
-      poolSize: 4,
-    }),
-    ninja: createSfx("../audio/Ninja_attacking_#3-1767164007149.mp3", {
-      volume: 0.8,
-      poolSize: 4,
-    }),
-    fall: createSfx("../audio/Man_yelling_loud_whi_#4-1767165390067.mp3", {
-      volume: 0.9,
-      poolSize: 2,
-    }),
-    bulldog: createSfx("../audio/Bulldog_growling_agg_#4-1767427632987.mp3", {
-      volume: 0.8,
-      poolSize: 4,
-    }),
-    bossLaugh: createSfx("../audio/Boss Laugh sound.mp3", {
-      volume: 0.9,
-      poolSize: 2,
-    }),
-    bossDrop: createSfx("../audio/Boss Drop impact sound.mp3", {
-      volume: 0.95,
-      poolSize: 2,
-    }),
-    bossGun: createSfx("../audio/Boss Gun shooting sound.mp3", {
-      volume: 0.95,
-      poolSize: 5,
-    }),
-    bossHurt: createSfx("../audio/Boss Injured sound.mp3", {
-      volume: 0.9,
-      poolSize: 4,
-    }),
-  };
+  const music = audioAssets.music;
+  const bossMusic = audioAssets.bossMusic;
+  const sfx = audioAssets.sfx;
   const audioState = {
     volume: 0.6,
     muted: false,
@@ -159,56 +328,251 @@ async function init() {
     powerUpSprites,
     tileSprites,
     sfx,
+    audioManager,
+    startMusic,
   });
   game.music = music;
   game.bossMusic = bossMusic;
   game.audioState = audioState;
 
-  loadingEl.style.display = "none";
+  if (loadingEl) {
+    loadingEl.style.transition = "opacity 0.4s ease";
+    loadingEl.style.opacity = "0";
+    setTimeout(function() {
+      loadingEl.style.display = "none";
+    }, 400);
+  }
   game.start();
   window.addEventListener("resize", () => game.resize());
   setupAudioStart(music, sfx);
   setupAudioControls(music, sfx, audioState, [bossMusic]);
 }
 
-function loadImage(path) {
+function createLoadingTracker(totalAssets) {
+  let loadedAssets = 0;
+  if (loadBarEl) {
+    loadBarEl.style.width = "0%";
+  }
+
+  return {
+    async phase(message) {
+      if (loadTextEl) {
+        loadTextEl.textContent = message || "Loading...";
+      }
+      await waitForPaint();
+    },
+    async step(label) {
+      loadedAssets += 1;
+      const pct = totalAssets > 0
+        ? Math.round((loadedAssets / totalAssets) * 100)
+        : 100;
+      if (loadBarEl) {
+        loadBarEl.style.width = `${Math.min(100, pct)}%`;
+      }
+      if (loadTextEl) {
+        loadTextEl.textContent = label || "Loading...";
+      }
+      await waitForPaint();
+    },
+    async ready() {
+      if (loadBarEl) {
+        loadBarEl.style.width = "100%";
+      }
+      if (loadTextEl) {
+        loadTextEl.textContent = "Ready!";
+      }
+      await waitForPaint();
+    },
+  };
+}
+
+function waitForPaint() {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined" || !window.requestAnimationFrame) {
+      setTimeout(resolve, 0);
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      setTimeout(resolve, 0);
+    });
+  });
+}
+
+async function loadLevels(progress) {
+  const levels = {};
+  for (let i = 0; i < LEVEL_ASSET_SPECS.length; i += 1) {
+    const spec = LEVEL_ASSET_SPECS[i];
+    levels[spec.key] = await loadLevelTracked(spec.path, spec.label, progress);
+  }
+  return levels;
+}
+
+async function loadAssetMap(specs, progress) {
+  const assets = {};
+  for (let i = 0; i < specs.length; i += 1) {
+    const spec = specs[i];
+    assets[spec.key] = await loadImageTracked(spec.path, spec.label, progress);
+  }
+  return assets;
+}
+
+async function loadLevelTracked(path, label, progress) {
+  const level = await loadLevel(resolveUrl(path));
+  if (progress) {
+    await progress.step(label || path);
+  }
+  return level;
+}
+
+function loadImageTracked(path, label, progress) {
   return new Promise((resolve) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+    img.onload = function() {
+      const finish = progress
+        ? progress.step(label || path)
+        : Promise.resolve();
+      finish.then(function() {
+        resolve(img);
+      });
+    };
+    img.onerror = function() {
+      const finish = progress
+        ? progress.step(label || path)
+        : Promise.resolve();
+      finish.then(function() {
+        resolve(null);
+      });
+    };
     img.src = resolveUrl(path);
   });
 }
 
-async function loadPlayerAnimations() {
-  const [
-    idleRight,
-    idleLeft,
-    runRight,
-    runLeftA,
-    runLeftB,
-    jumpLeftSingle,
-    jumpRightSingle,
-    jumpSheet,
-    gunReady,
-    shootRight,
-  ] =
-    await Promise.all([
-      loadSprite("../assets/MC idle standing right.jpg"),
-      loadSprite("../assets/MC idle standing left.jpg"),
-      loadSprite("../assets/MC running right (1) jpg.jpg"),
-      loadSprite("../assets/MC running left (1).jpg"),
-      loadSprite("../assets/MC running left-2 .jpg"),
-      loadSprite("../assets/MC jumping .jpg"),
-      loadSprite("../assets/MC jumping right.png"),
-      loadImage("../assets/Gemini_Generated_Image_ixbq8gixbq8gixbq.png"),
-      loadSprite("../assets/MC with Gun (1) .jpg"),
-      loadSprite("../assets/MC Shooting right.jpg"),
-    ]);
+async function setLoadingStatus(message) {
+  if (loadTextEl) {
+    loadTextEl.textContent = message || "Loading...";
+  }
+  await waitForPaint();
+}
 
-  const [jumpSheetRight, jumpSheetLeft] = splitImageColumns(jumpSheet, 2)
-    .map((image) => processSource(image))
-    .filter(Boolean);
+async function processSpriteSequentially(image, label) {
+  if (!image) return null;
+  await setLoadingStatus(label ? `Processing ${label}...` : "Processing sprites...");
+  const processed = processSprite(image);
+  await waitForPaint();
+  return processed;
+}
+
+async function processSourceSequentially(image, label) {
+  if (!image) return null;
+  return processSpriteSequentially(image, label);
+}
+
+async function processSpritesSequentially(images, specs) {
+  const results = {};
+  for (let i = 0; i < specs.length; i += 1) {
+    const spec = specs[i];
+    const image = images ? images[spec.key] : null;
+    if (spec.kind === "sprite") {
+      results[spec.key] = await processSpriteSequentially(image, spec.label);
+    } else {
+      results[spec.key] = image || null;
+    }
+  }
+  return results;
+}
+
+async function extractFrameSpritesSequential(image, frameCount, labelPrefix) {
+  if (!image) return [];
+  const frames = splitSpriteSheet(image, frameCount);
+  const results = [];
+  for (let i = 0; i < frames.length; i += 1) {
+    const frame = frames[i];
+    const cropped = cropImage(frame.image, {
+      x: frame.sx,
+      y: frame.sy,
+      w: frame.sw,
+      h: frame.sh,
+    });
+    const label = labelPrefix
+      ? `${labelPrefix} ${i + 1}`
+      : `Sprite ${i + 1}`;
+    const processed = await processSourceSequentially(cropped, label);
+    if (processed) {
+      results.push(processed);
+    }
+  }
+  return results;
+}
+
+async function extractRowFrameSpritesSequential(
+  image,
+  rowCount,
+  rowIndex,
+  frameCount,
+  labelPrefix
+) {
+  const rows = splitImageRows(image, rowCount);
+  const rowImage = rows[rowIndex];
+  return extractFrameSpritesSequential(rowImage, frameCount, labelPrefix);
+}
+
+async function loadAudioAssets(progress) {
+  const assets = {};
+  for (let i = 0; i < AUDIO_ASSET_SPECS.length; i += 1) {
+    const spec = AUDIO_ASSET_SPECS[i];
+    if (spec.kind === "music") {
+      assets[spec.key] = createMusic(spec.path, spec.baseVolume);
+    } else {
+      assets[spec.key] = createSfx(spec.path, spec.options);
+    }
+    if (progress) {
+      await progress.step(spec.label);
+    }
+  }
+
+  return {
+    music: assets.music || null,
+    bossMusic: assets.bossMusic || null,
+    sfx: {
+      gun: assets.gun,
+      coin: assets.coin,
+      siren: assets.siren,
+      bust: assets.bust,
+      death: assets.death,
+      snake: assets.snake,
+      ninja: assets.ninja,
+      fall: assets.fall,
+      bulldog: assets.bulldog,
+      bossLaugh: assets.bossLaugh,
+      bossDrop: assets.bossDrop,
+      bossGun: assets.bossGun,
+      bossHurt: assets.bossHurt,
+    },
+  };
+}
+
+async function loadPlayerAnimations(rawAssets) {
+  const assets = await processSpritesSequentially(rawAssets, PLAYER_ASSET_SPECS);
+  const idleRight = assets.idleRight;
+  const idleLeft = assets.idleLeft;
+  const runRight = assets.runRight;
+  const runLeftA = assets.runLeftA;
+  const runLeftB = assets.runLeftB;
+  const jumpLeftSingle = assets.jumpLeftSingle;
+  const jumpRightSingle = assets.jumpRightSingle;
+  const jumpSheet = rawAssets ? rawAssets.jumpSheet : null;
+  const gunReady = assets.gunReady;
+  const shootRight = assets.shootRight;
+
+  const jumpSheetColumns = splitImageColumns(jumpSheet, 2);
+  const jumpSheetRight = await processSourceSequentially(
+    jumpSheetColumns[0],
+    "MC Jump Sheet Right"
+  );
+  const jumpSheetLeft = await processSourceSequentially(
+    jumpSheetColumns[1],
+    "MC Jump Sheet Left"
+  );
   const referenceSprite =
     idleRight ||
     idleLeft ||
@@ -331,52 +695,29 @@ async function loadPlayerAnimations() {
   };
 }
 
-async function loadEnemyAnimations() {
-  const [
-    ninjaMovement,
-    ninja,
-    cop,
-    snake,
-    snakeIdleSheet,
-    snakeAttackSheet,
-    redNinja,
-    blueNinja,
-    redNinjaAttack,
-    blueNinjaAttack,
-    swatLegacy,
-    swatIdle,
-    swatWalkLeft,
-    swatWalkRight,
-    swatShootLeft,
-    swatShootRight,
-    swatLegacyShootLeft,
-    swatLegacyShootRight,
-    bulldogMovement,
-    bulldogAttack,
-    bulldog,
-  ] = await Promise.all([
-    loadImage("../assets/Ninja_attacker_movement.png"),
-    loadSprite("../assets/Ninja Attacker.png"),
-    loadSprite("../assets/Police Character .png"),
-    loadSprite("../assets/Snake in Grass.png"),
-    loadImage("../assets/Snake_in_grass_idle.png"),
-    loadImage("../assets/Snake_in_grass_attack.png"),
-    loadSprite("../assets/Red Ninja - L2 .png"),
-    loadSprite("../assets/Blue Ninja - L2.png"),
-    loadSprite("../assets/Red Ninja Attacking .png"),
-    loadSprite("../assets/Blue ninja attacking .png"),
-    loadSprite("../assets/Swat Cops - L2.png"),
-    loadSprite("../assets/Swat idle standing.png"),
-    loadSprite("../assets/Swat walking left.png"),
-    loadSprite("../assets/Swat walking right.png"),
-    loadSprite("../assets/Swat shooting left.png"),
-    loadSprite("../assets/Swat shooting right.png"),
-    loadSprite("../assets/Swat with Gub left.png"),
-    loadSprite("../assets/Swat with Gun right.png"),
-    loadImage("../assets/bulldog_movement.png"),
-    loadImage("../assets/bulldog_attack.png"),
-    loadSprite("../assets/Bulldog - L2.png"),
-  ]);
+async function loadEnemyAnimations(rawAssets) {
+  const assets = await processSpritesSequentially(rawAssets, ENEMY_ASSET_SPECS);
+  const ninjaMovement = rawAssets ? rawAssets.ninjaMovement : null;
+  const ninja = assets.ninja;
+  const cop = assets.cop;
+  const snake = assets.snake;
+  const snakeIdleSheet = rawAssets ? rawAssets.snakeIdleSheet : null;
+  const snakeAttackSheet = rawAssets ? rawAssets.snakeAttackSheet : null;
+  const redNinja = assets.redNinja;
+  const blueNinja = assets.blueNinja;
+  const redNinjaAttack = assets.redNinjaAttack;
+  const blueNinjaAttack = assets.blueNinjaAttack;
+  const swatLegacy = assets.swatLegacy;
+  const swatIdle = assets.swatIdle;
+  const swatWalkLeft = assets.swatWalkLeft;
+  const swatWalkRight = assets.swatWalkRight;
+  const swatShootLeft = assets.swatShootLeft;
+  const swatShootRight = assets.swatShootRight;
+  const swatLegacyShootLeft = assets.swatLegacyShootLeft;
+  const swatLegacyShootRight = assets.swatLegacyShootRight;
+  const bulldogMovement = rawAssets ? rawAssets.bulldogMovement : null;
+  const bulldogAttack = rawAssets ? rawAssets.bulldogAttack : null;
+  const bulldog = assets.bulldog;
 
   if (
     !ninjaMovement &&
@@ -414,18 +755,45 @@ async function loadEnemyAnimations() {
     2
   );
   const snakeIdleSprites = snakeIdleSheet
-    ? extractRowFrameSprites(snakeIdleSheet, 2, 1, 3)
+    ? await extractRowFrameSpritesSequential(
+        snakeIdleSheet,
+        2,
+        1,
+        3,
+        "Snake Idle"
+      )
     : [];
   const snakeAttackSprites = snakeAttackSheet
-    ? extractRowFrameSprites(snakeAttackSheet, 2, 1, 3)
+    ? await extractRowFrameSpritesSequential(
+        snakeAttackSheet,
+        2,
+        1,
+        3,
+        "Snake Attack"
+      )
     : [];
 
-  const ninjaTopStrip = processSource(ninjaTop);
-  const ninjaBottomStrip = processSource(ninjaBottom);
-  const bulldogMoveTopStrip = processSource(bulldogMoveTop);
-  const bulldogMoveBottomStrip = processSource(bulldogMoveBottom);
-  const bulldogAttackTopStrip = processSource(bulldogAttackTop);
-  const bulldogAttackBottomStrip = processSource(bulldogAttackBottom);
+  const ninjaTopStrip = await processSourceSequentially(ninjaTop, "Ninja Move Top");
+  const ninjaBottomStrip = await processSourceSequentially(
+    ninjaBottom,
+    "Ninja Move Bottom"
+  );
+  const bulldogMoveTopStrip = await processSourceSequentially(
+    bulldogMoveTop,
+    "Bulldog Move Top"
+  );
+  const bulldogMoveBottomStrip = await processSourceSequentially(
+    bulldogMoveBottom,
+    "Bulldog Move Bottom"
+  );
+  const bulldogAttackTopStrip = await processSourceSequentially(
+    bulldogAttackTop,
+    "Bulldog Attack Top"
+  );
+  const bulldogAttackBottomStrip = await processSourceSequentially(
+    bulldogAttackBottom,
+    "Bulldog Attack Bottom"
+  );
 
   const ninjaRunFrames = mergeFrames(
     splitFrames(ninjaTopStrip, 4),
@@ -646,57 +1014,40 @@ async function loadEnemyAnimations() {
   };
 }
 
-async function loadTileSprites() {
-  const [grass] = await Promise.all([loadSprite("../assets/Grass .png")]);
+async function loadTileSprites(rawAssets) {
+  const assets = await processSpritesSequentially(rawAssets, TILE_ASSET_SPECS);
+  const grass = assets.grass;
 
   if (!grass) return null;
   return { grass };
 }
 
-async function loadPowerUpSprites() {
-  const [gun, health] = await Promise.all([
-    loadSprite("../assets/Gun power up.png"),
-    loadSprite("../assets/health power up.png"),
-  ]);
+async function loadPowerUpSprites(rawAssets) {
+  const assets = await processSpritesSequentially(rawAssets, POWER_UP_ASSET_SPECS);
+  const gun = assets.gun;
+  const health = assets.health;
 
   if (!gun && !health) return null;
   return { gun, health };
 }
 
-async function loadBossAnimations() {
-  const [
-    idlePrimary,
-    idleRight,
-    idleLeft,
-    walkCenter,
-    walkRightA,
-    walkRightB,
-    walkLeftA,
-    chargeLeftA,
-    chargeLeftB,
-    swipeLeft,
-    swipeRight,
-    shootLeft,
-    shootRight,
-    gunLeft,
-    gunRight,
-  ] = await Promise.all([
-    loadSprite("../assets/Boss Twan .png"),
-    loadSprite("../assets/Boss_Enforcer.png"),
-    loadSprite("../assets/Boss Twan - facing left.jpg"),
-    loadSprite("../assets/Boss Twan - walking.jpg"),
-    loadSprite("../assets/Boss Twan walking - right.jpg"),
-    loadSprite("../assets/Boss Twan walking -  right (2).jpg"),
-    loadSprite("../assets/Boss Twan walking -left.jpg"),
-    loadSprite("../assets/Boss Twan - charging left (1).jpg"),
-    loadSprite("../assets/Boss Twan - charging left (2).jpg"),
-    loadSprite("../assets/Boss Twan punching - left .jpg"),
-    loadSprite("../assets/Boss Twan punching - right.jpg"),
-    loadSprite("../assets/Boss Twan - shooting left.png"),
-    loadSprite("../assets/Boss Twan - shooting right.png"),
-    loadSprite("../assets/Boss Twan - with gun.png"),
-    loadSprite("../assets/boss Twan - with gun - right.png"),
-  ]);
+async function loadBossAnimations(rawAssets) {
+  const assets = await processSpritesSequentially(rawAssets, BOSS_ASSET_SPECS);
+  const idlePrimary = assets.idlePrimary;
+  const idleRight = assets.idleRight;
+  const idleLeft = assets.idleLeft;
+  const walkCenter = assets.walkCenter;
+  const walkRightA = assets.walkRightA;
+  const walkRightB = assets.walkRightB;
+  const walkLeftA = assets.walkLeftA;
+  const chargeLeftA = assets.chargeLeftA;
+  const chargeLeftB = assets.chargeLeftB;
+  const swipeLeft = assets.swipeLeft;
+  const swipeRight = assets.swipeRight;
+  const shootLeft = assets.shootLeft;
+  const shootRight = assets.shootRight;
+  const gunLeft = assets.gunLeft;
+  const gunRight = assets.gunRight;
 
   const resolvedIdleRight =
     idlePrimary || idleRight || gunRight || shootRight || gunLeft || null;
@@ -863,12 +1214,6 @@ function buildEnemyScales(animationSets) {
   return scales;
 }
 
-async function loadSprite(path) {
-  const img = await loadImage(path);
-  if (!img) return null;
-  return processSprite(img);
-}
-
 function splitImageRows(image, rowCount) {
   if (!image || rowCount <= 0) return [];
   const rows = [];
@@ -935,33 +1280,6 @@ function flipSprite(sprite) {
   ctx.scale(-1, 1);
   ctx.drawImage(sprite, 0, 0);
   return canvas;
-}
-
-function processSource(image) {
-  if (!image) return null;
-  return processSprite(image);
-}
-
-function extractFrameSprites(image, frameCount) {
-  if (!image) return [];
-  return splitSpriteSheet(image, frameCount)
-    .map((frame) =>
-      processSource(
-        cropImage(frame.image, {
-          x: frame.sx,
-          y: frame.sy,
-          w: frame.sw,
-          h: frame.sh,
-        })
-      )
-    )
-    .filter(Boolean);
-}
-
-function extractRowFrameSprites(image, rowCount, rowIndex, frameCount) {
-  const rows = splitImageRows(image, rowCount);
-  const rowImage = rows[rowIndex];
-  return extractFrameSprites(rowImage, frameCount);
 }
 
 function normalizeSpriteGroups(groups) {
@@ -1105,6 +1423,7 @@ function createStaticAnimationSet(image, options = {}) {
 
 function createMusic(path, baseVolume = 1) {
   const audio = new Audio(resolveUrl(path));
+  audio._nativePlay = audio.play.bind(audio);
   audio.loop = true;
   audio.preload = "auto";
   audio.load();
@@ -1124,6 +1443,7 @@ function createSfx(path, options = {}) {
       : 1;
   const clips = Array.from({ length: poolSize }, () => {
     const clip = new Audio(resolveUrl(path));
+    clip._nativePlay = clip.play.bind(clip);
     clip.preload = "auto";
     clip.load();
     clip._masterVolume = 0.6;
@@ -1145,7 +1465,7 @@ function createSfx(path, options = {}) {
       primed = true;
       clips.forEach((clip) => {
         clip.volume = 0;
-        clip.play()
+        clip._nativePlay()
           .then(() => {
             clip.pause();
             clip.currentTime = 0;
@@ -1163,10 +1483,11 @@ function createSfx(path, options = {}) {
       }, 200);
     },
     play() {
+      if (!audioManager.unlocked) return;
       const clip = clips[index];
       index = (index + 1) % clips.length;
       clip.currentTime = 0;
-      clip.play().catch(() => {});
+      clip.play().catch(function() {});
     },
   };
 }
@@ -1184,6 +1505,7 @@ function resolveUrl(path) {
 
 function applyAudioState(music, sfx, state, extraMusic = []) {
   const volume = state.muted ? 0 : state.volume;
+  audioManager.masterVolume = volume;
   [music, ...extraMusic].filter(Boolean).forEach((track) => {
     track._masterVolume = volume;
     track.volume =
@@ -1197,37 +1519,58 @@ function applyAudioState(music, sfx, state, extraMusic = []) {
   }
 }
 
+function startMusic(audio) {
+  if (!audio) return;
+
+  function tryPlay() {
+    audio.volume = 0;
+    const playFn = audio._nativePlay || audio.play.bind(audio);
+    const promise = playFn();
+    if (promise && typeof promise.then === "function") {
+      promise.then(function() {
+        let vol = 0;
+        const target =
+          (audio.baseVolume || 0.3) * (audioManager.masterVolume || 0.6);
+        const fade = setInterval(function() {
+          vol += 0.03;
+          if (vol >= target) {
+            audio.volume = target;
+            clearInterval(fade);
+          } else {
+            audio.volume = vol;
+          }
+        }, 50);
+      }).catch(function() {
+        audioManager.pendingUnlock.push(tryPlay);
+      });
+    }
+  }
+
+  if (audioManager.unlocked) {
+    tryPlay();
+  } else {
+    audioManager.pendingUnlock.push(tryPlay);
+  }
+}
+
 function setupAudioStart(audio, sfx) {
   if (!audio && !sfx) return;
   let started = false;
   const start = () => {
     if (started) return;
     started = true;
-    if (sfx) {
-      Object.values(sfx).forEach((sound) => {
-        if (sound.prime) sound.prime();
+    audioManager.unlock()
+      .then(function() {
+        if (sfx) {
+          Object.values(sfx).forEach((sound) => {
+            if (sound.prime) sound.prime();
+          });
+        }
+        startMusic(audio);
+      })
+      .catch(() => {
+        started = false;
       });
-    }
-    if (audio) {
-      audio.volume = 0;
-      audio.play()
-        .then(() => {
-          let fadeVol = 0;
-          const targetVol = audio.baseVolume * (audio._masterVolume || 0.6);
-          const fadeInterval = setInterval(() => {
-            fadeVol += 0.05;
-            if (fadeVol >= targetVol) {
-              audio.volume = targetVol;
-              clearInterval(fadeInterval);
-            } else {
-              audio.volume = fadeVol;
-            }
-          }, 50);
-        })
-        .catch(() => {
-          started = false;
-        });
-    }
   };
   window.addEventListener("keydown", start, { once: true });
   window.addEventListener("pointerdown", start, { once: true });
@@ -1290,11 +1633,15 @@ function setupAudioControls(music, sfx, state, extraMusic = []) {
 }
 
 function processSprite(img) {
+  const maxHeight = 400;
+  const scale = img.height > maxHeight ? maxHeight / img.height : 1;
+  const scaledWidth = Math.max(1, Math.round(img.width * scale));
+  const scaledHeight = Math.max(1, Math.round(img.height * scale));
   const canvas = document.createElement("canvas");
-  canvas.width = img.width;
-  canvas.height = img.height;
+  canvas.width = scaledWidth;
+  canvas.height = scaledHeight;
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0);
+  ctx.drawImage(img, 0, 0, scaledWidth, scaledHeight);
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const { data } = imageData;

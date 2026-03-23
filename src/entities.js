@@ -342,6 +342,11 @@ export class Enemy {
     this.stateTime = 0;
     this.animationFrame = 0;
     this.animationTimer = 0;
+    this.graceDuration = this.type === "snake" ? 2.5 : 1.5;
+    this.graceTimer =
+      options.graceTimer !== undefined && options.graceTimer !== null
+        ? options.graceTimer
+        : this.graceDuration;
     this.deathTimer = 0;
     this.deathDuration = 0.35;
     this.remove = false;
@@ -359,6 +364,22 @@ export class Enemy {
       this.deathTimer = Math.max(0, this.deathTimer - dt);
       this.remove = this.deathTimer <= 0;
       this.setState(ENTITY_STATES.DEAD);
+      return;
+    }
+    if (this.graceTimer > 0) {
+      this.graceTimer = Math.max(0, this.graceTimer - dt);
+      this.vx = this.patrolDir * 20;
+      if (Math.abs(this.x - this.homeX) > this.patrolRange) {
+        this.patrolDir *= -1;
+      }
+      this.vy += CONFIG.gravity * dt;
+      level.moveEntity(this, dt, true);
+      if (this.vx !== 0) {
+        this.facing = Math.sign(this.vx);
+        this.setState(ENTITY_STATES.RUN);
+      } else {
+        this.setState(ENTITY_STATES.IDLE);
+      }
       return;
     }
     if (this.stunTimer > 0) {
@@ -488,9 +509,7 @@ export class Enemy {
       this.cooldown = 1.2;
       this.lungeDir = Math.sign(dx) || this.patrolDir;
       this.vx = this.lungeDir * 180;
-      if (game.sfx && game.sfx.bulldog) {
-        game.sfx.bulldog.play();
-      }
+      game.playSfx(game.sfx && game.sfx.bulldog ? game.sfx.bulldog : null);
       return;
     }
 
@@ -597,9 +616,7 @@ export class Enemy {
         this.vy = -280;
         this.attackTimer = 0.22;
         this.attackCooldown = 0.7;
-        if (game.sfx && game.sfx.ninja) {
-          game.sfx.ninja.play();
-        }
+        game.playSfx(game.sfx && game.sfx.ninja ? game.sfx.ninja : null);
         return;
       }
       const formationSpeed = crowded ? chaseSpeed * 0.72 : chaseSpeed;
@@ -615,9 +632,7 @@ export class Enemy {
           this.vy = -320;
           this.vx = Math.sign(dx) * 200;
           this.cooldown = 0.6;
-          if (game.sfx && game.sfx.ninja) {
-            game.sfx.ninja.play();
-          }
+          game.playSfx(game.sfx && game.sfx.ninja ? game.sfx.ninja : null);
         }
       }
     } else {

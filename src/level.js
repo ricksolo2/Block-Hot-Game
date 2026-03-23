@@ -269,9 +269,9 @@ export class Level {
         const y = ty * this.tileSize;
 
         if (tile === 1) {
-          ctx.fillStyle = "#404040";
+          ctx.fillStyle = "#4a4a4a";
           ctx.fillRect(x, y, this.tileSize, this.tileSize);
-          ctx.fillStyle = "#5a5a5a";
+          ctx.fillStyle = "#707070";
           ctx.fillRect(x, y, this.tileSize, 2);
         } else if (tile === 2) {
           if (tileset && tileset.grass) {
@@ -282,11 +282,15 @@ export class Level {
             ctx.fillStyle = "#d9a160";
             ctx.fillRect(x, y + this.tileSize - 6, this.tileSize, 2);
           }
+          ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+          ctx.fillRect(x, y, this.tileSize, 2);
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
+          ctx.strokeRect(x + 0.5, y + 0.5, this.tileSize - 1, this.tileSize - 1);
         } else if (tile === 3) {
-          ctx.fillStyle = "#d35454";
+          ctx.fillStyle = "#c04040";
           ctx.fillRect(x, y, this.tileSize, this.tileSize);
-          ctx.fillStyle = "#ff9d9d";
-          ctx.fillRect(x + 2, y + 2, this.tileSize - 4, 4);
+          ctx.fillStyle = "#e06060";
+          ctx.fillRect(x, y, this.tileSize, 3);
         } else if (tile === 4) {
           ctx.fillStyle = "#2f4858";
           ctx.fillRect(x, y, this.tileSize, this.tileSize);

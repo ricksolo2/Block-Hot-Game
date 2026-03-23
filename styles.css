@@ -87,6 +87,110 @@ body {
   z-index: 100;
 }
 
+#instructions-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.92);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.instr-panel {
+  background: rgba(20, 20, 20, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 20px 28px;
+  max-width: 440px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.instr-title {
+  font-family: monospace;
+  font-size: 20px;
+  font-weight: bold;
+  color: #e85858;
+  text-align: center;
+  letter-spacing: 4px;
+  margin-bottom: 16px;
+}
+
+.instr-heading {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: bold;
+  color: #f2d64b;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+  margin-top: 14px;
+}
+
+.instr-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.instr-btn-demo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 32px;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: bold;
+  padding: 0 8px;
+}
+
+.btn-a { border-color: rgba(90, 217, 107, 0.5); color: #5ad96b; }
+.btn-b { border-color: rgba(232, 88, 88, 0.5); color: #e85858; }
+.btn-c { border-color: rgba(63, 169, 245, 0.5); color: #3fa9f5; }
+.btn-swap { border-color: rgba(242, 214, 75, 0.5); color: #f2d64b; }
+
+.instr-label {
+  font-family: monospace;
+  font-size: 12px;
+  color: #cccccc;
+}
+
+.instr-text {
+  font-family: monospace;
+  font-size: 11px;
+  color: #aaaaaa;
+  margin-bottom: 6px;
+  padding-left: 8px;
+}
+
+.instr-start {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 14px;
+  background: rgba(232, 88, 88, 0.3);
+  border: 2px solid #e85858;
+  border-radius: 8px;
+  color: #ffffff;
+  font-family: monospace;
+  font-size: 16px;
+  font-weight: bold;
+  letter-spacing: 3px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* Fullscreen button — always visible on all devices */
 #fullscreen-btn {
   position: fixed;
@@ -112,6 +216,35 @@ body {
   color: #ffffff;
 }
 
+#audio-btn {
+  position: fixed;
+  top: 10px;
+  left: 170px;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.7);
+  font-family: monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+#audio-btn:hover {
+  background: rgba(63, 169, 245, 0.4);
+  border-color: rgba(63, 169, 245, 0.6);
+  color: #ffffff;
+}
+
+#audio-btn.muted {
+  color: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
 /* Hide when already in fullscreen (the Escape key exits) */
 :fullscreen #fullscreen-btn,
 :-webkit-full-screen #fullscreen-btn {
@@ -120,6 +253,12 @@ body {
 
 /* On mobile touch devices, make it bigger and easier to tap */
 .has-touch #fullscreen-btn {
+  font-size: 13px;
+  padding: 10px 18px;
+  border-radius: 8px;
+}
+
+.has-touch #audio-btn {
   font-size: 13px;
   padding: 10px 18px;
   border-radius: 8px;

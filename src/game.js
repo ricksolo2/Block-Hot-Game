@@ -19,9 +19,9 @@ import {
   Projectile,
   EnemyProjectile,
   BOSS_STATES,
-} from "./entities.js?v=14";
+} from "./entities.js?v=16";
 import { ProceduralAnimator } from "./proceduralAnimator.js?v=9";
-import { drawHud } from "./ui.js?v=8";
+import { drawHud } from "./ui.js?v=10";
 
 export class Game {
   constructor(canvas, ctx, input, level, options = {}) {
@@ -96,6 +96,7 @@ export class Game {
     this.copSpawnTimer = CONFIG.copSpawnInterval;
     this.ninjaSpawnTimer = CONFIG.ninjaSpawnInterval;
     this.state = "menu";
+    this.autoInstructionsShown = false;
     this.pauseTimer = 0;
     this.bust = {
       active: false,
@@ -106,8 +107,23 @@ export class Game {
 
     this.setupBoss();
     this.spawnInitialEnemies();
+    this.maybeShowMobileInstructions();
     this.syncPublicState();
     this.resize();
+  }
+
+  maybeShowMobileInstructions() {
+    if (!this.isMobile || this.autoInstructionsShown) return;
+    try {
+      const key = "blockhot-mobile-instructions-seen";
+      if (!window.localStorage.getItem(key)) {
+        this.state = "instructions";
+        window.localStorage.setItem(key, "1");
+      }
+    } catch (error) {
+      this.state = "instructions";
+    }
+    this.autoInstructionsShown = true;
   }
 
   start() {
@@ -760,9 +776,7 @@ export class Game {
     this.bust.active = false;
     this.hitStop.reset();
     this.stopMusic();
-    if (this.sfx && this.sfx.bossLaugh) {
-      this.sfx.bossLaugh.play();
-    }
+    this.playSfx(this.sfx && this.sfx.bossLaugh ? this.sfx.bossLaugh : null);
 
     this.player.x = arena.x + 28;
     this.player.y = groundTop - this.player.h;
@@ -828,9 +842,7 @@ export class Game {
           life: 0.36,
           size: 2.4,
         });
-        if (this.sfx && this.sfx.bossDrop) {
-          this.sfx.bossDrop.play();
-        }
+        this.playSfx(this.sfx && this.sfx.bossDrop ? this.sfx.bossDrop : null);
       }
     }
 
@@ -1171,9 +1183,7 @@ export class Game {
       maxSpeed: 90,
       life: 0.25,
     });
-    if (this.sfx && this.sfx.gun) {
-      this.sfx.gun.play();
-    }
+    this.playSfx(this.sfx && this.sfx.gun ? this.sfx.gun : null);
   }
 
   spawnEnemyProjectile(enemy, dir) {
@@ -1189,9 +1199,7 @@ export class Game {
       life: 0.18,
       size: 1.2,
     });
-    if (this.sfx && this.sfx.gun) {
-      this.sfx.gun.play();
-    }
+    this.playSfx(this.sfx && this.sfx.gun ? this.sfx.gun : null);
   }
 
   spawnBossProjectile(boss) {
@@ -1218,11 +1226,13 @@ export class Game {
       life: 0.22,
       size: 1.5,
     });
-    if (this.sfx && this.sfx.bossGun) {
-      this.sfx.bossGun.play();
-    } else if (this.sfx && this.sfx.gun) {
-      this.sfx.gun.play();
-    }
+    this.playSfx(
+      this.sfx && this.sfx.bossGun
+        ? this.sfx.bossGun
+        : this.sfx && this.sfx.gun
+          ? this.sfx.gun
+          : null
+    );
   }
 
   handleProjectileHits() {
@@ -1287,9 +1297,7 @@ export class Game {
         maxSpeed: 135,
         life: 0.22,
       });
-      if (this.sfx && this.sfx.bossHurt) {
-        this.sfx.bossHurt.play();
-      }
+      this.playSfx(this.sfx && this.sfx.bossHurt ? this.sfx.bossHurt : null);
       if (enemy.hp <= 0) {
         this.startBossDefeat();
       }
@@ -1492,11 +1500,11 @@ export class Game {
           this.startBust(enemy);
         } else {
           const dir = this.player.x < enemy.x ? -1 : 1;
-          if (enemy.type === "snake" && this.sfx && this.sfx.snake) {
-            this.sfx.snake.play();
+          if (enemy.type === "snake") {
+            this.playSfx(this.sfx && this.sfx.snake ? this.sfx.snake : null);
           }
-          if (enemy.type === "bulldog" && this.sfx && this.sfx.bulldog) {
-            this.sfx.bulldog.play();
+          if (enemy.type === "bulldog") {
+            this.playSfx(this.sfx && this.sfx.bulldog ? this.sfx.bulldog : null);
           }
           this.damagePlayer(1, dir);
         }
@@ -1527,12 +1535,8 @@ export class Game {
     this.bust.dir = this.player.x < enemy.x ? -1 : 1;
     this.player.vx = 0;
     this.player.vy = 0;
-    if (this.sfx && this.sfx.siren) {
-      this.sfx.siren.play();
-    }
-    if (this.sfx && this.sfx.bust) {
-      this.sfx.bust.play();
-    }
+    this.playSfx(this.sfx && this.sfx.siren ? this.sfx.siren : null);
+    this.playSfx(this.sfx && this.sfx.bust ? this.sfx.bust : null);
   }
 
   updateBust(dt) {
@@ -1583,9 +1587,7 @@ export class Game {
         this.coinCount += 1;
         this.score += 10 * this.combo;
         this.addCombo();
-        if (this.sfx && this.sfx.coin) {
-          this.sfx.coin.play();
-        }
+        this.playSfx(this.sfx && this.sfx.coin ? this.sfx.coin : null);
       }
     }
   }
@@ -1900,9 +1902,7 @@ export class Game {
     } else {
       this.respawnAtStart({ reduceHeat: true });
     }
-    if (this.sfx && this.sfx.fall) {
-      this.sfx.fall.play();
-    }
+    this.playSfx(this.sfx && this.sfx.fall ? this.sfx.fall : null);
   }
 
   hasNextLevel() {
@@ -2031,6 +2031,13 @@ export class Game {
     }
   }
 
+  playSfx(sound) {
+    if (window.__blockhot_muted) return;
+    if (sound && sound.play) {
+      sound.play();
+    }
+  }
+
   triggerGameOver() {
     this.state = "gameover";
     this.levelComplete = false;
@@ -2042,9 +2049,7 @@ export class Game {
     this.player.hurtTimer = 0;
     this.player.setState(ENTITY_STATES.DEAD);
     this.stopMusic();
-    if (this.sfx && this.sfx.death) {
-      this.sfx.death.play();
-    }
+    this.playSfx(this.sfx && this.sfx.death ? this.sfx.death : null);
   }
 
   isPlayerInGrass() {
@@ -2156,7 +2161,7 @@ export class Game {
     const drawY = (CONFIG.height - drawH) / 2;
 
     ctx.drawImage(this.background, drawX, drawY, drawW, drawH);
-    ctx.fillStyle = "rgba(0, 0, 0, 0.03)";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
     ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
   }
 
@@ -2177,28 +2182,59 @@ export class Game {
       if (coin.collected) continue;
       const hover = Math.sin(this.time * 6 + coin.x * 0.1) * 0.6;
       const drawY = coin.y + hover;
-      if (!this.isMobile) {
-        ctx.fillStyle = "rgba(242, 214, 75, 0.15)";
-        ctx.beginPath();
-        ctx.arc(coin.x, drawY, coin.r + 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = "#0b0b0b";
+      ctx.fillStyle = "rgba(255, 230, 100, 0.3)";
+      ctx.beginPath();
+      ctx.arc(coin.x, drawY, coin.r + 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(coin.x, drawY, coin.r + 1, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.stroke();
       ctx.fillStyle = "#f2d64b";
       ctx.beginPath();
       ctx.arc(coin.x, drawY, coin.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff8d0";
+      ctx.beginPath();
+      ctx.arc(coin.x - 1, drawY - 1, coin.r * 0.4, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
   drawSafehouses(ctx) {
-    ctx.fillStyle = "#4bd1b8";
+    ctx.save();
     for (const safehouse of this.level.safehouses) {
+      const pulse = Math.sin(this.time * 3) * 0.15 + 0.6;
+
+      ctx.fillStyle = `rgba(75, 209, 184, ${pulse * 0.3})`;
+      ctx.fillRect(
+        safehouse.x - 4,
+        safehouse.y - 4,
+        safehouse.w + 8,
+        safehouse.h + 8
+      );
+
+      ctx.strokeStyle = `rgba(75, 209, 184, ${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(
+        safehouse.x - 1,
+        safehouse.y - 1,
+        safehouse.w + 2,
+        safehouse.h + 2
+      );
+      ctx.lineWidth = 1;
+
+      ctx.fillStyle = "#4bd1b8";
       ctx.fillRect(safehouse.x, safehouse.y, safehouse.w, safehouse.h);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 5px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("SAFE", safehouse.x + safehouse.w / 2, safehouse.y - 3);
+      ctx.textAlign = "left";
     }
+    ctx.restore();
   }
 
   drawPickups(ctx) {
@@ -2308,11 +2344,43 @@ export class Game {
   }
 
   drawExit(ctx) {
-    const ready = this.isExitReady();
-    ctx.fillStyle = ready ? "#4bd97f" : "#d94b4b";
-    ctx.fillRect(this.level.exit.x, this.level.exit.y, this.level.exit.w, this.level.exit.h);
-    ctx.strokeStyle = ready ? "#c1ffd4" : "#f7b2b2";
-    ctx.strokeRect(this.level.exit.x, this.level.exit.y, this.level.exit.w, this.level.exit.h);
+    const exit = this.level.exit;
+    const pulse = Math.sin(this.time * 4) * 0.2 + 0.8;
+
+    ctx.save();
+    ctx.fillStyle = `rgba(217, 75, 75, ${pulse * 0.25})`;
+    ctx.fillRect(exit.x - 6, exit.y - 6, exit.w + 12, exit.h + 12);
+
+    ctx.strokeStyle = `rgba(255, 180, 180, ${pulse})`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(exit.x - 1, exit.y - 1, exit.w + 2, exit.h + 2);
+    ctx.lineWidth = 1;
+
+    ctx.fillStyle = "#d94b4b";
+    ctx.fillRect(exit.x, exit.y, exit.w, exit.h);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 7px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("EXIT", exit.x + exit.w / 2, exit.y - 4);
+    ctx.fillText("▼", exit.x + exit.w / 2, exit.y - 10);
+    ctx.textAlign = "left";
+    ctx.restore();
+  }
+
+  drawEnemyShadow(ctx, enemy, widthOverride = null) {
+    const shadowWidth = Math.max(
+      8,
+      Math.round(
+        widthOverride !== null && widthOverride !== undefined
+          ? widthOverride
+          : enemy.w * 0.75
+      )
+    );
+    const shadowX = Math.round(enemy.x + enemy.w / 2 - shadowWidth / 2);
+    const shadowY = Math.round(enemy.y + enemy.h - 2);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+    ctx.fillRect(shadowX, shadowY, shadowWidth, 3);
   }
 
   drawProjectiles(ctx) {
@@ -2368,8 +2436,18 @@ export class Game {
 
   drawEnemies(ctx) {
     for (const enemy of this.enemies) {
+      if (enemy.graceTimer > 0) {
+        const graceDuration =
+          enemy.graceDuration !== undefined && enemy.graceDuration !== null
+            ? enemy.graceDuration
+            : enemy.type === "snake"
+              ? 2.5
+              : 1.5;
+        ctx.globalAlpha = 0.5 + (0.5 * (1 - enemy.graceTimer / graceDuration));
+      }
       const presentation = this.getEnemyAnimationPresentation(enemy);
       if (presentation && presentation.frame) {
+        this.drawEnemyShadow(ctx, enemy);
         this.drawEnemyFrame(
           ctx,
           enemy,
@@ -2377,10 +2455,12 @@ export class Game {
           presentation.flip,
           enemy.flashTimer > 0
         );
+        ctx.globalAlpha = 1;
         continue;
       }
 
       const flash = enemy.flashTimer > 0;
+      this.drawEnemyShadow(ctx, enemy);
       if (enemy.type === "cop" || enemy.type === "swat") {
         ctx.fillStyle = flash ? "#ffffff" : "#3d6fd9";
         ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
@@ -2414,6 +2494,7 @@ export class Game {
           ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
         }
       }
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -2622,17 +2703,6 @@ export class Game {
     );
     const centerX = Math.round(drawX + drawW / 2 + (transform.offsetX || 0));
     const centerY = Math.round(drawY + drawH / 2 + (transform.offsetY || 0));
-    const shadowScale = Math.max(0, (transform.scaleX + transform.scaleY) * 0.5);
-
-    if (enemy.type === "snake" || enemy.type === "bulldog") {
-      ctx.fillStyle = `rgba(0, 0, 0, ${0.35 * shadowScale})`;
-      ctx.fillRect(
-        drawX + drawW * (0.5 - 0.3 * shadowScale),
-        enemy.y + enemy.h - 2,
-        drawW * 0.6 * shadowScale,
-        3
-      );
-    }
 
     this.drawTransformedAnimationFrame(
       ctx,

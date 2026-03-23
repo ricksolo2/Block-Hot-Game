@@ -29,6 +29,7 @@
 
     <main id="game-wrap">
       <button id="fullscreen-btn" aria-label="Toggle Fullscreen">⛶ FULLSCREEN</button>
+      <button id="audio-btn" aria-label="Toggle Audio">🔊 SOUND ON</button>
       <canvas id="game" width="640" height="360" aria-label="BlockHot game canvas" role="img"></canvas>
       <div id="loading">
         <div class="load-title">BLOCK HOT</div>
@@ -36,6 +37,52 @@
           <div class="load-bar" id="load-bar"></div>
         </div>
         <div class="load-text" id="load-text">Loading...</div>
+      </div>
+      <div id="instructions-overlay" class="touch-hidden">
+        <div class="instr-panel">
+          <div class="instr-title">HOW TO PLAY</div>
+
+          <div class="instr-section">
+            <div class="instr-heading">CONTROLS</div>
+            <div class="instr-row">
+              <span class="instr-btn-demo">◀ ▶</span>
+              <span class="instr-label">Move left / right</span>
+            </div>
+            <div class="instr-row">
+              <span class="instr-btn-demo btn-a">A</span>
+              <span class="instr-label">Jump (hold for higher jump)</span>
+            </div>
+            <div class="instr-row">
+              <span class="instr-btn-demo btn-b">B</span>
+              <span class="instr-label">Shoot</span>
+            </div>
+            <div class="instr-row">
+              <span class="instr-btn-demo btn-c">C</span>
+              <span class="instr-label">Dash</span>
+            </div>
+            <div class="instr-row">
+              <span class="instr-btn-demo btn-swap">↻</span>
+              <span class="instr-label">Switch weapon</span>
+            </div>
+          </div>
+
+          <div class="instr-section">
+            <div class="instr-heading">GOALS</div>
+            <div class="instr-text">Collect coins and reach the EXIT</div>
+            <div class="instr-text">Avoid hazards (red warning tiles)</div>
+            <div class="instr-text">Neutralize enemies with your airsoft</div>
+            <div class="instr-text">Find SAFEHOUSES to heal and reduce Heat</div>
+          </div>
+
+          <div class="instr-section">
+            <div class="instr-heading">WATCH OUT</div>
+            <div class="instr-text">★ Stars = Heat level (cops raise it)</div>
+            <div class="instr-text">♥ Hearts = your health</div>
+            <div class="instr-text">Higher Heat = more enemies</div>
+          </div>
+
+          <button class="instr-start" id="instr-start-btn">TAP TO PLAY</button>
+        </div>
       </div>
       <div id="ios-fs-hint" style="display:none; position:fixed; bottom:100px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.9); color:#e6e6e6; padding:14px 24px; border-radius:10px; font:14px monospace; text-align:center; z-index:10000; border:1px solid rgba(255,255,255,0.2); max-width:300px;">
         For true fullscreen on iPhone:<br><br>
@@ -67,7 +114,7 @@
     </main>
 
     <!-- Game engine (unchanged) -->
-    <script type="module" src="src/main.js?v=9"></script>
+    <script type="module" src="src/main.js?v=12"></script>
 
     <!-- Mobile layer — only activates on touch devices, desktop never sees it -->
     <script>
@@ -165,6 +212,15 @@
 
       // First touch starts game (unlocks audio)
       document.addEventListener('touchstart', function first() {
+        var instructionsOverlay = document.getElementById('instructions-overlay');
+        if (
+          instructionsOverlay &&
+          !instructionsOverlay.classList.contains('touch-hidden') &&
+          instructionsOverlay.style.display !== 'none' &&
+          instructionsOverlay.style.opacity !== '0'
+        ) {
+          return;
+        }
         fireKey('Enter', 'keydown');
         setTimeout(function() { fireKey('Enter', 'keyup'); }, 60);
         document.removeEventListener('touchstart', first);
@@ -248,6 +304,100 @@
     document.addEventListener('fullscreenchange', updateFSBtn);
     document.addEventListener('webkitfullscreenchange', updateFSBtn);
     updateFSBtn();
+    </script>
+
+    <script>
+    (function() {
+      var audioBtn = document.getElementById('audio-btn');
+      if (!audioBtn) return;
+      var muted = !!window.__blockhot_muted;
+
+      function applyAudioState() {
+        if (muted) {
+          audioBtn.textContent = '🔇 SOUND OFF';
+          audioBtn.classList.add('muted');
+        } else {
+          audioBtn.textContent = '🔊 SOUND ON';
+          audioBtn.classList.remove('muted');
+        }
+      }
+
+      function setMuted(nextMuted) {
+        muted = !!nextMuted;
+        window.__blockhot_muted = muted;
+        applyAudioState();
+
+        var allAudio = document.querySelectorAll('audio');
+        for (var i = 0; i < allAudio.length; i++) {
+          allAudio[i].muted = muted;
+        }
+
+        if (window.__blockhot_setMuted) {
+          window.__blockhot_setMuted(muted);
+        }
+      }
+
+      window.__blockhot_updateAudioButton = function(nextMuted) {
+        muted = !!nextMuted;
+        applyAudioState();
+      };
+
+      audioBtn.addEventListener('click', function() {
+        setMuted(!muted);
+      });
+
+      audioBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        audioBtn.click();
+      }, { passive: false });
+
+      applyAudioState();
+    })();
+    </script>
+
+    <script>
+    (function() {
+      var overlay = document.getElementById('instructions-overlay');
+      var startBtn = document.getElementById('instr-start-btn');
+      if (!overlay || !startBtn) return;
+
+      var hasTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+      var seen = false;
+      try {
+        seen = localStorage.getItem('blockhot_instructions_seen') === '1';
+      } catch (e) {}
+
+      if (hasTouch && !seen) {
+        overlay.classList.remove('touch-hidden');
+      }
+
+      function startGame() {
+        overlay.style.transition = 'opacity 0.3s ease';
+        overlay.style.opacity = '0';
+        setTimeout(function() {
+          overlay.style.display = 'none';
+          overlay.classList.add('touch-hidden');
+        }, 300);
+
+        try {
+          localStorage.setItem('blockhot_instructions_seen', '1');
+        } catch (e) {}
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
+        setTimeout(function() {
+          window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+        }, 60);
+      }
+
+      startBtn.addEventListener('click', function() {
+        startGame();
+      });
+
+      startBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        startBtn.click();
+      }, { passive: false });
+    })();
     </script>
 
     <!-- Service Worker for offline play -->

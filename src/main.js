@@ -1,4 +1,4 @@
-import { Game } from "./game.js?v=20";
+import { Game } from "./game.js?v=23";
 import {
   ENTITY_STATES,
   createClip,
@@ -7,7 +7,7 @@ import {
   splitSpriteSheet,
 } from "./animation.js?v=5";
 import { Input } from "./input.js?v=5";
-import { loadLevel } from "./level.js?v=8";
+import { loadLevel } from "./level.js?v=9";
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d", { alpha: false });
@@ -16,6 +16,10 @@ ctx.imageSmoothingEnabled = false;
 const loadingEl = document.getElementById("loading");
 const loadBarEl = document.getElementById("load-bar");
 const loadTextEl = document.getElementById("load-text");
+
+if (window.__blockhot_muted === undefined) {
+  window.__blockhot_muted = false;
+}
 
 const audioManager = {
   ctx: null,
@@ -309,7 +313,7 @@ async function init() {
   const sfx = audioAssets.sfx;
   const audioState = {
     volume: 0.6,
-    muted: false,
+    muted: !!window.__blockhot_muted,
     lastVolume: 0.6,
     step: 0.1,
   };
@@ -1460,6 +1464,11 @@ function createSfx(path, options = {}) {
         clip.volume = volume;
       });
     },
+    setMuted(muted) {
+      clips.forEach((clip) => {
+        clip.muted = !!muted;
+      });
+    },
     prime() {
       if (primed) return;
       primed = true;
@@ -1492,6 +1501,7 @@ function applyAudioState(music, sfx, state, extraMusic = []) {
   audioManager.masterVolume = volume;
   [music, ...extraMusic].filter(Boolean).forEach((track) => {
     track._masterVolume = volume;
+    track.muted = !!state.muted;
     track.volume =
       volume *
       (track.baseVolume !== undefined && track.baseVolume !== null
@@ -1499,7 +1509,12 @@ function applyAudioState(music, sfx, state, extraMusic = []) {
         : 1);
   });
   if (sfx) {
-    Object.values(sfx).forEach((sound) => sound.setVolume(volume));
+    Object.values(sfx).forEach((sound) => {
+      sound.setVolume(volume);
+      if (sound.setMuted) {
+        sound.setMuted(state.muted);
+      }
+    });
   }
 }
 
@@ -1560,6 +1575,12 @@ function setupAudioControls(music, sfx, state, extraMusic = []) {
   if (!music && !sfx) return;
   const clampVolume = (value) => Math.max(0, Math.min(1, value));
   const apply = () => applyAudioState(music, sfx, state, extraMusic);
+  const syncWindowMute = () => {
+    window.__blockhot_muted = !!state.muted;
+    if (typeof window.__blockhot_updateAudioButton === "function") {
+      window.__blockhot_updateAudioButton(window.__blockhot_muted);
+    }
+  };
 
   const setVolume = (value) => {
     state.volume = clampVolume(value);
@@ -1572,6 +1593,7 @@ function setupAudioControls(music, sfx, state, extraMusic = []) {
     if (state.volume > 0) {
       state.lastVolume = state.volume;
     }
+    syncWindowMute();
     apply();
   };
 
@@ -1585,6 +1607,7 @@ function setupAudioControls(music, sfx, state, extraMusic = []) {
         state.volume = state.lastVolume || 0.35;
       }
     }
+    syncWindowMute();
     apply();
   };
 
@@ -1609,6 +1632,21 @@ function setupAudioControls(music, sfx, state, extraMusic = []) {
       event.preventDefault();
     }
   });
+
+  window.__blockhot_setMuted = (muted) => {
+    state.muted = !!muted;
+    if (state.muted && state.volume > 0) {
+      state.lastVolume = state.volume;
+    }
+    if (!state.muted && state.volume === 0) {
+      state.volume = state.lastVolume || 0.35;
+    }
+    syncWindowMute();
+    apply();
+  };
+
+  syncWindowMute();
+  apply();
 }
 
 function processSprite(img) {

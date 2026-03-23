@@ -168,22 +168,10 @@ function drawObjectives(ctx, game) {
 }
 
 function drawAudioStatus(ctx, game) {
-  const state = game.audioState;
-  if (!state) return;
+  if (!window.__blockhot_muted) return;
   ctx.save();
   ctx.font = "8px monospace";
-  const label =
-    state.muted || state.volume === 0
-      ? "Audio Muted (M)"
-      : "Audio: M  -/+ Vol";
-  const w = ctx.measureText(label).width + 8;
-  const x = 8;
-  const y = 22;
-  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-  ctx.fillRect(x, y - 2, w, 10);
-  ctx.strokeStyle = "#3a3a3a";
-  ctx.strokeRect(x, y - 2, w, 10);
-  drawText(ctx, label, x + 4, y, state.muted ? "#ffb3b3" : "#f7f1cf");
+  drawText(ctx, "🔇 MUTED", 8, 32, "#ffb3b3");
   ctx.restore();
 }
 
@@ -452,11 +440,19 @@ function drawInstructions(ctx, game) {
       : CONFIG.minCoinsToExit;
   const requiredSwatKills =
     (game.level && game.level.requiredSwatKills) || 0;
-  drawText(ctx, "Move: WASD / Arrows", 8, 32, "#e6e6e6");
-  drawText(ctx, "Jump: Z or Space", 8, 44, "#e6e6e6");
-  drawText(ctx, "Shoot: X   Dash: C   Reload: R", 8, 56, "#e6e6e6");
-  drawText(ctx, "Swap Pellets: Q / E or 1-4", 8, 68, "#e6e6e6");
-  drawText(ctx, "Audio: M Mute, -/+ Volume", 8, 80, "#e6e6e6");
+  if (game.isMobile) {
+    drawText(ctx, "Move: D-Pad Left / Right", 8, 32, "#e6e6e6");
+    drawText(ctx, "A: Jump   B: Shoot   C: Dash", 8, 44, "#e6e6e6");
+    drawText(ctx, "↻: Swap Pellets   ⏸: Pause", 8, 56, "#e6e6e6");
+    drawText(ctx, "Top buttons: Full View / Sound", 8, 68, "#e6e6e6");
+    drawText(ctx, "Tap CONTINUE to start playing.", 8, 80, "#e6e6e6");
+  } else {
+    drawText(ctx, "Move: WASD / Arrows", 8, 32, "#e6e6e6");
+    drawText(ctx, "Jump: Z or Space", 8, 44, "#e6e6e6");
+    drawText(ctx, "Shoot: X   Dash: C   Reload: R", 8, 56, "#e6e6e6");
+    drawText(ctx, "Swap Pellets: Q / E or 1-4", 8, 68, "#e6e6e6");
+    drawText(ctx, "Audio: M Mute, -/+ Volume", 8, 80, "#e6e6e6");
+  }
   drawText(ctx, "Goal: Reach the exit, earn coins, manage Heat.", 8, 96, "#e6e6e6");
   drawText(
     ctx,

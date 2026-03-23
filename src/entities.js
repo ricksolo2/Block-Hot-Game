@@ -85,6 +85,7 @@ export class Player {
     this.shootTimer = 0;
     this.pelletIndex = 0;
     this.tripleShotTimer = 0;
+    this.blocking = false;
     this.state = ENTITY_STATES.IDLE;
     this.stateTime = 0;
     this.animationFrame = 0;
@@ -143,8 +144,31 @@ export class Player {
 
     const moveDir = (left ? -1 : 0) + (right ? 1 : 0);
 
-    if (moveDir !== 0) {
+    this.blocking = down && this.onGround && this.dashTime <= 0;
+
+    if (!this.blocking && moveDir !== 0) {
       this.facing = moveDir;
+    }
+
+    if (this.blocking) {
+      this.vx = 0;
+      this.jumpBuffer = 0;
+      this.jumpHold = 0;
+      this.wallSliding = false;
+      this.vy += CONFIG.gravity * dt;
+      level.moveEntity(this, dt, true);
+
+      if (!wasOnGround && this.onGround) {
+        this.landTimer = 0.1;
+      }
+
+      if (this.onGround) {
+        this.airDashAvailable = true;
+        this.coyoteTimer = JUMP.coyoteTime;
+      }
+
+      this.updateState();
+      return;
     }
 
     if (jumpPressed) {

@@ -1,19 +1,19 @@
-const CACHE = 'blockhot-v11';
+const CACHE = 'blockhot-v12';
 
 const CORE = [
   '/',
   '/index.html',
   '/styles.css',
   '/manifest.json',
-  '/src/main.js?v=12',
-  '/src/game.js?v=23',
-  '/src/entities.js?v=16',
+  '/src/main.js?v=13',
+  '/src/game.js?v=24',
+  '/src/entities.js?v=17',
   '/src/animation.js?v=5',
   '/src/constants.js?v=6',
   '/src/input.js?v=5',
   '/src/level.js?v=9',
   '/src/proceduralAnimator.js?v=9',
-  '/src/ui.js?v=10',
+  '/src/ui.js?v=11',
   '/src/utils.js?v=5',
   '/levels/level1.json',
   '/levels/level2.json',

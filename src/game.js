@@ -19,9 +19,9 @@ import {
   Projectile,
   EnemyProjectile,
   BOSS_STATES,
-} from "./entities.js?v=16";
+} from "./entities.js?v=17";
 import { ProceduralAnimator } from "./proceduralAnimator.js?v=9";
-import { drawHud } from "./ui.js?v=10";
+import { drawHud } from "./ui.js?v=11";
 
 export class Game {
   constructor(canvas, ctx, input, level, options = {}) {
@@ -1468,7 +1468,9 @@ export class Game {
     const tiles = this.level.tilesInRect(this.player);
     for (const tile of tiles) {
       if (this.level.isHazardTile(tile.type)) {
-        this.damagePlayer(1, this.player.vx >= 0 ? -1 : 1);
+        this.damagePlayer(1, this.player.vx >= 0 ? -1 : 1, {
+          source: "hazard",
+        });
         break;
       }
     }
@@ -1568,12 +1570,7 @@ export class Game {
       this.player.vx = -this.bust.dir * 140;
       this.player.vy = -180;
     } else {
-      this.player.hp -= 1;
-      if (this.player.hp <= 0) {
-        this.triggerGameOver();
-      } else {
-        this.respawnAtCheckpoint({ heal: false, reduceHeat: true });
-      }
+      this.respawnAtCheckpoint({ heal: false, reduceHeat: true });
     }
   }
 
@@ -1820,9 +1817,34 @@ export class Game {
   }
 
   damagePlayer(amount, knockbackDir, options = {}) {
-    const knockbackX = options.knockbackX || 160;
-    const knockbackY = options.knockbackY || -200;
-    const invuln = options.invuln || 1.0;
+    const blocked = this.player.blocking && options.source !== "hazard";
+    let knockbackX = options.knockbackX || 160;
+    let knockbackY = options.knockbackY || -200;
+    const invuln = options.invuln || 1.8;
+
+    if (blocked) {
+      amount = Math.max(0, Math.floor(amount / 2));
+      knockbackX *= 0.5;
+      knockbackY *= 0.5;
+
+      if (amount === 0) {
+        this.addShake(0.5, 0.05);
+        this.spawnParticles(
+          this.player.x + this.player.w / 2,
+          this.player.y + this.player.h / 2,
+          {
+            color: "#aaddff",
+            count: 4,
+            minSpeed: 30,
+            maxSpeed: 80,
+            life: 0.15,
+          }
+        );
+        this.player.invuln = 0.3;
+        return;
+      }
+    }
+
     this.player.hp -= amount;
     this.player.invuln = invuln;
     this.player.hurtTimer = 0.36;
@@ -1866,6 +1888,7 @@ export class Game {
     this.player.hurtTimer = 0;
     this.player.hitAnimTimer = 0;
     this.player.landTimer = 0;
+    this.player.blocking = false;
     if (heal) {
       this.player.hp = this.player.maxHp;
     }
@@ -1886,6 +1909,7 @@ export class Game {
     this.player.hurtTimer = 0;
     this.player.hitAnimTimer = 0;
     this.player.landTimer = 0;
+    this.player.blocking = false;
     this.player.invuln = 1.0;
     this.player.ammo = this.player.maxAmmo;
     this.player.reloadTimer = 0;
@@ -2607,6 +2631,15 @@ export class Game {
       ctx.fillStyle = this.player.invuln > 0 ? "#9ef5a1" : "#5ad96b";
       ctx.fillRect(-this.player.w / 2, -this.player.h / 2, this.player.w, this.player.h);
       ctx.restore();
+      if (this.player.blocking) {
+        ctx.fillStyle = "rgba(150, 200, 255, 0.2)";
+        ctx.fillRect(
+          this.player.x - 2,
+          this.player.y - 2,
+          this.player.w + 4,
+          this.player.h + 4
+        );
+      }
       return;
     }
 
@@ -2658,6 +2691,16 @@ export class Game {
       transform,
       flash
     );
+
+    if (this.player.blocking) {
+      ctx.fillStyle = "rgba(150, 200, 255, 0.2)";
+      ctx.fillRect(
+        this.player.x - 2,
+        this.player.y - 2,
+        this.player.w + 4,
+        this.player.h + 4
+      );
+    }
   }
 
   getEnemyAnimationSet(enemy) {

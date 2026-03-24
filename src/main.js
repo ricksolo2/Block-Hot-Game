@@ -1,4 +1,4 @@
-import { Game } from "./game.js?v=25";
+import { Game } from "./game.js?v=26";
 import {
   ENTITY_STATES,
   createClip,

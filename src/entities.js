@@ -372,9 +372,11 @@ export class Enemy {
     this.attackTimer = 0;
     this.attackCooldown = 0;
     this.attackDir = 1;
+    this.telegraphTimer = 0;
     this.facing = 1;
     this.shootTimer = 0;
     this.shootCooldown = 0;
+    this.shootPending = false;
     this.ambush = options.ambush || false;
     this.patrolInterval = options.patrolInterval || 2;
     this.patrolTimer = this.patrolInterval;
@@ -401,7 +403,9 @@ export class Enemy {
       this.vx = 0;
       this.stunTimer = 0;
       this.attackTimer = 0;
+      this.telegraphTimer = 0;
       this.lungeTimer = 0;
+      this.shootPending = false;
       this.deathTimer = Math.max(0, this.deathTimer - dt);
       this.remove = this.deathTimer <= 0;
       this.setState(ENTITY_STATES.DEAD);
@@ -444,8 +448,10 @@ export class Enemy {
       Math.abs(this.vx) < 8 &&
       this.stunTimer <= 0 &&
       this.attackTimer <= 0 &&
+      this.telegraphTimer <= 0 &&
       this.lungeTimer <= 0 &&
-      this.shootTimer <= 0
+      this.shootTimer <= 0 &&
+      !this.shootPending
     ) {
       this.vx = 0;
     }
@@ -468,7 +474,9 @@ export class Enemy {
     this.vy = 0;
     this.stunTimer = 0;
     this.attackTimer = 0;
+    this.telegraphTimer = 0;
     this.lungeTimer = 0;
+    this.shootPending = false;
     this.deathDuration = duration;
     this.deathTimer = Math.max(this.deathTimer, duration);
     this.setState(ENTITY_STATES.DEAD);
@@ -483,7 +491,13 @@ export class Enemy {
       this.setState(ENTITY_STATES.STUNNED);
       return;
     }
-    if (this.shootTimer > 0 || this.attackTimer > 0 || this.lungeTimer > 0) {
+    if (
+      this.shootTimer > 0 ||
+      this.attackTimer > 0 ||
+      this.telegraphTimer > 0 ||
+      this.lungeTimer > 0 ||
+      this.shootPending
+    ) {
       this.setState(ENTITY_STATES.ATTACK);
       return;
     }
@@ -561,13 +575,17 @@ export class Enemy {
     }
   }
 
-  updateCop(dt, game) {
+  updateCop(dt, game, speedMult = 1) {
     const heat = game.heatStars;
-    const patrolSpeed = 40 + heat * 8;
-    const chaseSpeed = 70 + heat * 12;
+    const patrolSpeed = (40 + heat * 8) * speedMult;
+    const chaseSpeed = (70 + heat * 12) * speedMult;
     const dx = game.player.x - this.x;
     const dy = Math.abs(game.player.y - this.y);
-    const inRange = Math.abs(dx) < 140 && dy < 48;
+    const masked =
+      game.player &&
+      game.player.hasPowerup &&
+      game.player.hasPowerup("maskOn");
+    const inRange = Math.abs(dx) < 140 && dy < 48 && !masked;
     const spacingBias = game.getEnemySpacingBias(
       this,
       ["cop", "swat"],
@@ -577,7 +595,28 @@ export class Enemy {
     );
     const crowded = game.isEnemyCrowded(this, ["cop", "swat"], 24, 22);
 
+    if (this.shootPending) {
+      this.vx = 0;
+      this.facing = Math.sign(dx) || this.facing;
+      if (this.shootTimer <= 0) {
+        this.shootPending = false;
+        this.shootCooldown = 2.0;
+        game.spawnEnemyProjectile(this, this.facing);
+      }
+      return;
+    }
+
     if (inRange) {
+      if (heat >= 3 && Math.abs(dx) > 60 && Math.abs(dx) < 140) {
+        this.vx = 0;
+        this.facing = Math.sign(dx) || this.facing;
+        if (this.shootCooldown <= 0) {
+          this.shootTimer = 0.2;
+          this.shootPending = true;
+        }
+        return;
+      }
+
       const desiredVx = Math.sign(dx) * chaseSpeed;
       const packedSpeed = crowded ? chaseSpeed * 0.72 : chaseSpeed;
       this.vx = clamp(desiredVx + spacingBias, -packedSpeed, packedSpeed);
@@ -617,12 +656,14 @@ export class Enemy {
     }
   }
 
-  updateNinja(dt, game) {
+  updateNinja(dt, game, speedMult = 1) {
     const dx = game.player.x - this.x;
     const dy = Math.abs(game.player.y - this.y);
     const inRange = Math.abs(dx) < 160 && dy < 72;
-    const chaseSpeed = 80;
-    const patrolSpeed = 50;
+    const chaseSpeed = 80 * speedMult;
+    const patrolSpeed = 50 * speedMult;
+    const retreatDuration = 0.8;
+    const recoveryDuration = this.type === "redNinja" ? 1.0 : 1.2;
     const spacingBias = game.getEnemySpacingBias(
       this,
       ["ninja", "redNinja", "blueNinja"],
@@ -639,40 +680,63 @@ export class Enemy {
 
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.attackCooldown = Math.max(0, this.attackCooldown - dt);
+
     if (this.attackTimer > 0) {
       this.attackTimer = Math.max(0, this.attackTimer - dt);
-      this.vx = this.attackDir * 220;
+      this.vx = this.attackDir * 220 * speedMult;
+      return;
+    }
+
+    if (this.telegraphTimer > 0) {
+      this.telegraphTimer = Math.max(0, this.telegraphTimer - dt);
+      this.vx = 0;
+      this.facing = this.attackDir || this.facing;
+      if (this.telegraphTimer <= 0 && this.onGround) {
+        this.vx = this.attackDir * 220 * speedMult;
+        this.vy = -280;
+        this.attackTimer = 0.22;
+        this.attackCooldown = recoveryDuration + retreatDuration;
+        game.playSfx(game.sfx && game.sfx.ninja ? game.sfx.ninja : null);
+      }
+      return;
+    }
+
+    if (this.attackCooldown > retreatDuration) {
+      this.vx = 0;
+      return;
+    }
+
+    if (this.attackCooldown > 0) {
+      const retreatDir = this.x < game.player.x ? -1 : 1;
+      this.vx = retreatDir * patrolSpeed * 0.6;
       return;
     }
 
     if (inRange) {
-      if (
-        this.onGround &&
-        this.attackCooldown <= 0 &&
-        Math.abs(dx) < 110 &&
-        !crowded
-      ) {
+      if (Math.abs(dx) > 70) {
+        const formationSpeed = crowded ? chaseSpeed * 0.72 : chaseSpeed;
+        this.vx = clamp(
+          Math.sign(dx) * chaseSpeed + spacingBias,
+          -formationSpeed,
+          formationSpeed
+        );
+      } else {
+        this.vx = 0;
         this.attackDir = Math.sign(dx) || this.patrolDir;
-        this.vx = this.attackDir * 220;
-        this.vy = -280;
-        this.attackTimer = 0.22;
-        this.attackCooldown = 0.7;
-        game.playSfx(game.sfx && game.sfx.ninja ? game.sfx.ninja : null);
-        return;
+        this.facing = this.attackDir || this.facing;
+        if (this.onGround && this.cooldown <= 0 && !crowded) {
+          this.telegraphTimer = 0.6;
+          return;
+        }
       }
-      const formationSpeed = crowded ? chaseSpeed * 0.72 : chaseSpeed;
-      this.vx = clamp(
-        Math.sign(dx) * chaseSpeed + spacingBias,
-        -formationSpeed,
-        formationSpeed
-      );
+
       if (this.onGround && this.cooldown <= 0) {
         const playerAbove = game.player.y + game.player.h < this.y - 6;
         const stuckOnWall = this.touchingLeft || this.touchingRight;
-        if (playerAbove || stuckOnWall || (Math.abs(dx) < 70 && !crowded)) {
+        if (playerAbove || stuckOnWall) {
           this.vy = -320;
-          this.vx = Math.sign(dx) * 200;
-          this.cooldown = 0.6;
+          this.vx = Math.sign(dx) * 200 * speedMult;
+          this.cooldown = 0.8;
           game.playSfx(game.sfx && game.sfx.ninja ? game.sfx.ninja : null);
         }
       }

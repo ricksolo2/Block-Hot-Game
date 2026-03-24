@@ -19,7 +19,7 @@ import {
   Projectile,
   EnemyProjectile,
   BOSS_STATES,
-} from "./entities.js?v=18";
+} from "./entities.js?v=19";
 import { ProceduralAnimator } from "./proceduralAnimator.js?v=9";
 import { drawHud } from "./ui.js?v=12";
 

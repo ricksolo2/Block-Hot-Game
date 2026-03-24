@@ -1,4 +1,4 @@
-import { Game } from "./game.js?v=24";
+import { Game } from "./game.js?v=25";
 import {
   ENTITY_STATES,
   createClip,
@@ -128,6 +128,7 @@ const BACKGROUND_ASSET_SPECS = [
   { key: "background3Alt", path: "../assets/Level 3 background .png", label: "Background 3 Alt", kind: "image" },
   { key: "background3Fallback", path: "../assets/O-Block Background.png", label: "Background 3 Fallback", kind: "image" },
   { key: "background4", path: "../assets/level 4 background.png", label: "Background 4", kind: "image" },
+  { key: "arrestImage", path: "../assets/cutscene_arrest.png", label: "Arrest Cutscene", kind: "image" },
   { key: "menuImage", path: "../assets/Loading Screen.png", label: "Menu Screen", kind: "image" },
 ];
 
@@ -282,6 +283,7 @@ async function init() {
   const background3Alt = backgroundAssets.background3Alt;
   const background3Fallback = backgroundAssets.background3Fallback;
   const background4 = backgroundAssets.background4;
+  const arrestImage = backgroundAssets.arrestImage;
   const menuImage = backgroundAssets.menuImage;
   const levels = [
     { level: level1, background: background1 },
@@ -323,6 +325,7 @@ async function init() {
     levels,
     background: levels[0].background,
     menuImage,
+    arrestImage,
     playerAnimations,
     spriteScale,
     enemyAnimations,

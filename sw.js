@@ -1,24 +1,25 @@
-const CACHE = 'blockhot-v12';
+const CACHE = 'blockhot-v13';
 
 const CORE = [
   '/',
   '/index.html',
   '/styles.css',
   '/manifest.json',
-  '/src/main.js?v=13',
-  '/src/game.js?v=24',
-  '/src/entities.js?v=17',
+  '/src/main.js?v=14',
+  '/src/game.js?v=25',
+  '/src/entities.js?v=18',
   '/src/animation.js?v=5',
   '/src/constants.js?v=6',
   '/src/input.js?v=5',
   '/src/level.js?v=9',
   '/src/proceduralAnimator.js?v=9',
-  '/src/ui.js?v=11',
+  '/src/ui.js?v=12',
   '/src/utils.js?v=5',
   '/levels/level1.json',
   '/levels/level2.json',
   '/levels/level3.json',
   '/levels/level4.json',
+  '/assets/cutscene_arrest.png',
   '/assets/icon-192.png',
   '/assets/icon-512.png',
 ];

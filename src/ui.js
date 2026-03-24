@@ -450,25 +450,26 @@ function drawInstructions(ctx, game) {
   } else {
     drawText(ctx, "Move: WASD / Arrows", 8, 32, "#e6e6e6");
     drawText(ctx, "Jump: Z or Space", 8, 44, "#e6e6e6");
-    drawText(ctx, "Shoot: X   Dash: C   Reload: R", 8, 56, "#e6e6e6");
-    drawText(ctx, "Block: Hold ↓ / S", 8, 68, "#e6e6e6");
-    drawText(ctx, "Swap Pellets: Q / E or 1-4", 8, 80, "#e6e6e6");
-    drawText(ctx, "Audio: M Mute, -/+ Volume", 8, 92, "#e6e6e6");
+    drawText(ctx, "Double Jump: Press Jump again in air", 8, 56, "#e6e6e6");
+    drawText(ctx, "Shoot: X   Dash: C   Reload: R", 8, 68, "#e6e6e6");
+    drawText(ctx, "Block: Hold ↓ / S", 8, 80, "#e6e6e6");
+    drawText(ctx, "Swap Pellets: Q / E or 1-4", 8, 92, "#e6e6e6");
+    drawText(ctx, "Audio: M Mute, -/+ Volume", 8, 104, "#e6e6e6");
   }
-  drawText(ctx, "Goal: Reach the exit, earn coins, manage Heat.", 8, 108, "#e6e6e6");
+  drawText(ctx, "Goal: Reach the exit, earn coins, manage Heat.", 8, 120, "#e6e6e6");
   drawText(
     ctx,
     requiredSwatKills > 0
       ? `Need ${requiredCoins} coins and ${requiredSwatKills} SWAT takedowns to exit.`
       : `Need at least ${requiredCoins} coins to exit.`,
     8,
-    120,
+    132,
     "#e6e6e6"
   );
-  drawText(ctx, "Gun pickup grants temporary triple-shot spread.", 8, 132, "#e6e6e6");
-  drawText(ctx, "Health pickup repairs missing hearts.", 8, 144, "#e6e6e6");
-  drawText(ctx, "Cops raise Heat; safehouses cool it down.", 8, 156, "#e6e6e6");
-  drawText(ctx, "Press Enter to Start or Esc to go Back", 8, 168, "#e6e6e6");
+  drawText(ctx, "Gun pickup grants temporary triple-shot spread.", 8, 144, "#e6e6e6");
+  drawText(ctx, "Health pickup repairs missing hearts.", 8, 156, "#e6e6e6");
+  drawText(ctx, "Cops raise Heat; safehouses cool it down.", 8, 168, "#e6e6e6");
+  drawText(ctx, "Press Enter to Start or Esc to go Back", 8, 180, "#e6e6e6");
 }
 
 function drawComplete(ctx, game) {

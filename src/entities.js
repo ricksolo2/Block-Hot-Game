@@ -69,6 +69,9 @@ export class Player {
     this.dashTime = 0;
     this.dashDir = 1;
     this.dashCooldown = 0;
+    this.hasDoubleJump = true;
+    this.doubleJumpAvailable = true;
+    this.justDoubleJumped = false;
     this.airDashAvailable = true;
     this.dropThroughTimer = 0;
     this.dropThrough = false;
@@ -94,6 +97,7 @@ export class Player {
 
   update(dt, input, level, game) {
     this.stateTime += dt;
+    this.justDoubleJumped = false;
     this.invuln = Math.max(0, this.invuln - dt);
     this.hurtTimer = Math.max(0, this.hurtTimer - dt);
     this.dropThroughTimer = Math.max(0, this.dropThroughTimer - dt);
@@ -140,11 +144,16 @@ export class Player {
     const jumpPressed = input.wasPressed("KeyZ") || input.wasPressed("Space");
     const jumpHeld = input.isDown("KeyZ") || input.isDown("Space");
     const shootPressed = input.wasPressed("KeyX");
+    const dashKey = input.isDown("KeyC");
     const dashPressed = input.wasPressed("KeyC");
 
     const moveDir = (left ? -1 : 0) + (right ? 1 : 0);
+    const notMoving = moveDir === 0;
 
-    this.blocking = down && this.onGround && this.dashTime <= 0;
+    this.blocking =
+      (down || (dashKey && notMoving)) &&
+      this.onGround &&
+      this.dashTime <= 0;
 
     if (!this.blocking && moveDir !== 0) {
       this.facing = moveDir;
@@ -164,6 +173,7 @@ export class Player {
 
       if (this.onGround) {
         this.airDashAvailable = true;
+        this.doubleJumpAvailable = true;
         this.coyoteTimer = JUMP.coyoteTime;
       }
 
@@ -208,11 +218,17 @@ export class Player {
           this.jumpHold = 0;
           this.jumpBuffer = 0;
           this.wallSliding = false;
+        } else if (this.hasDoubleJump && this.doubleJumpAvailable) {
+          this.vy = -JUMP.speed * 0.85;
+          this.jumpHold = 0;
+          this.jumpBuffer = 0;
+          this.doubleJumpAvailable = false;
+          this.justDoubleJumped = true;
         }
       }
     }
 
-    if (dashPressed && this.dashCooldown <= 0) {
+    if (dashPressed && this.dashCooldown <= 0 && !this.blocking) {
       if (this.onGround || this.airDashAvailable) {
         this.dashTime = DASH.duration;
         this.dashCooldown = DASH.cooldown;
@@ -288,6 +304,7 @@ export class Player {
 
     if (this.onGround) {
       this.airDashAvailable = true;
+      this.doubleJumpAvailable = true;
       this.coyoteTimer = JUMP.coyoteTime;
       if (this.jumpBuffer > 0 && !down) {
         this.vy = -JUMP.speed;

@@ -19,9 +19,9 @@ import {
   Projectile,
   EnemyProjectile,
   BOSS_STATES,
-} from "./entities.js?v=17";
+} from "./entities.js?v=18";
 import { ProceduralAnimator } from "./proceduralAnimator.js?v=9";
-import { drawHud } from "./ui.js?v=11";
+import { drawHud } from "./ui.js?v=12";
 
 export class Game {
   constructor(canvas, ctx, input, level, options = {}) {
@@ -39,6 +39,7 @@ export class Game {
     this.camera = { x: 0, y: 0, w: CONFIG.width, h: CONFIG.height };
     this.background = levelData.background || options.background || null;
     this.menuImage = options.menuImage || null;
+    this.arrestImage = options.arrestImage || null;
     this.playerAnimations = options.playerAnimations || null;
     this.spriteScale = options.spriteScale || 1;
     this.enemyAnimations = options.enemyAnimations || null;
@@ -96,6 +97,8 @@ export class Game {
     this.copSpawnTimer = CONFIG.copSpawnInterval;
     this.ninjaSpawnTimer = CONFIG.ninjaSpawnInterval;
     this.state = "menu";
+    this.arrestTimer = 0;
+    this.arrestPhase = 0;
     this.autoInstructionsShown = false;
     this.pauseTimer = 0;
     this.bust = {
@@ -468,6 +471,25 @@ export class Game {
       return;
     }
 
+    if (this.state === "arrested") {
+      this.arrestTimer -= dt;
+      if (this.arrestTimer <= 3 && this.arrestPhase === 0) {
+        this.arrestPhase = 1;
+      }
+      if (this.arrestTimer <= 2 && this.arrestPhase === 1) {
+        this.arrestPhase = 2;
+      }
+      if (this.arrestTimer <= 0) {
+        this.triggerGameOver({ playDeathSfx: false });
+      }
+      this.player.vx = 0;
+      this.player.vy = 0;
+      this.player.blocking = false;
+      this.syncPublicState();
+      this.input.clearPressed();
+      return;
+    }
+
     if (this.state === "bossfight" && this.bossDefeatActive) {
       this.updateBossDefeatSequence(dt);
       this.syncPublicState();
@@ -500,6 +522,21 @@ export class Game {
       this.storePreviousPosition(this.player);
       this.player.update(dt, this.input, this.level, this);
       this.resolveBarrierCollisions(this.player);
+      if (this.player.justDoubleJumped) {
+        this.player.justDoubleJumped = false;
+        this.spawnParticles(
+          this.player.x + this.player.w / 2,
+          this.player.y + this.player.h,
+          {
+            color: "#aaddff",
+            count: 6,
+            minSpeed: 20,
+            maxSpeed: 60,
+            life: 0.2,
+            size: 2,
+          }
+        );
+      }
     }
     stepAnimation(this.player, dt, this.playerAnimations);
     this.updatePlayerPresentation(dt);
@@ -1570,7 +1607,13 @@ export class Game {
       this.player.vx = -this.bust.dir * 140;
       this.player.vy = -180;
     } else {
-      this.respawnAtCheckpoint({ heal: false, reduceHeat: true });
+      this.state = "arrested";
+      this.arrestTimer = 6;
+      this.arrestPhase = 0;
+      this.player.vx = 0;
+      this.player.vy = 0;
+      this.player.blocking = false;
+      this.stopMusic();
     }
   }
 
@@ -1889,6 +1932,8 @@ export class Game {
     this.player.hitAnimTimer = 0;
     this.player.landTimer = 0;
     this.player.blocking = false;
+    this.player.doubleJumpAvailable = true;
+    this.player.justDoubleJumped = false;
     if (heal) {
       this.player.hp = this.player.maxHp;
     }
@@ -1910,6 +1955,8 @@ export class Game {
     this.player.hitAnimTimer = 0;
     this.player.landTimer = 0;
     this.player.blocking = false;
+    this.player.doubleJumpAvailable = true;
+    this.player.justDoubleJumped = false;
     this.player.invuln = 1.0;
     this.player.ammo = this.player.maxAmmo;
     this.player.reloadTimer = 0;
@@ -1954,6 +2001,8 @@ export class Game {
   restart() {
     this.levelComplete = false;
     this.state = "playing";
+    this.arrestTimer = 0;
+    this.arrestPhase = 0;
     this.pauseTimer = 0;
     this.completeStats = null;
     this.score = 0;
@@ -2063,17 +2112,30 @@ export class Game {
   }
 
   triggerGameOver() {
+    let playDeathSfx = true;
+    if (
+      arguments.length > 0 &&
+      arguments[0] &&
+      arguments[0].playDeathSfx === false
+    ) {
+      playDeathSfx = false;
+    }
     this.state = "gameover";
     this.levelComplete = false;
     this.bust.active = false;
+    this.arrestTimer = 0;
+    this.arrestPhase = 0;
     this.pauseTimer = 0;
     this.player.vx = 0;
     this.player.vy = 0;
     this.player.invuln = 0;
     this.player.hurtTimer = 0;
+    this.player.blocking = false;
     this.player.setState(ENTITY_STATES.DEAD);
     this.stopMusic();
-    this.playSfx(this.sfx && this.sfx.death ? this.sfx.death : null);
+    if (playDeathSfx) {
+      this.playSfx(this.sfx && this.sfx.death ? this.sfx.death : null);
+    }
   }
 
   isPlayerInGrass() {
@@ -2162,7 +2224,47 @@ export class Game {
     if (this.bust.active) {
       this.drawBustLights(ctx);
     }
+    if (this.state === "arrested") {
+      this.drawArrestSequence(ctx);
+      return;
+    }
     drawHud(ctx, this);
+  }
+
+  drawArrestSequence(ctx) {
+    if (this.arrestPhase === 0 && this.arrestImage) {
+      ctx.drawImage(this.arrestImage, 0, 0, CONFIG.width, CONFIG.height);
+      return;
+    }
+
+    if (this.arrestPhase === 1) {
+      if (this.arrestImage) {
+        ctx.drawImage(this.arrestImage, 0, 0, CONFIG.width, CONFIG.height);
+      } else {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+      }
+      const fadeAlpha = 1 - ((this.arrestTimer - 2) / 1);
+      ctx.fillStyle = `rgba(0, 0, 0, ${clamp(fadeAlpha, 0, 1)})`;
+      ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+      return;
+    }
+
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+    ctx.save();
+    ctx.font = "bold 28px monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ff2222";
+    ctx.fillText("BUSTED", CONFIG.width / 2, CONFIG.height / 2);
+    ctx.font = "10px monospace";
+    ctx.fillStyle = "#888888";
+    ctx.fillText(
+      "Restarting level...",
+      CONFIG.width / 2,
+      CONFIG.height / 2 + 24
+    );
+    ctx.restore();
   }
 
   drawBackground(ctx) {

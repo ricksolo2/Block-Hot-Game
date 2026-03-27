@@ -1,4 +1,4 @@
-import { Game } from "./game.js?v=28";
+import { Game } from "./game.js?v=29";
 import {
   ENTITY_STATES,
   createClip,
@@ -1456,6 +1456,8 @@ function createMusic(path, baseVolume = 1) {
   audio.load();
   audio.baseVolume = baseVolume;
   audio._masterVolume = 0.6;
+  audio._playRequestId = 0;
+  audio._blockhotShouldPlay = false;
   return audio;
 }
 
@@ -1543,17 +1545,34 @@ function applyAudioState(music, sfx, state, extraMusic = []) {
 
 function startMusic(audio) {
   if (!audio) return;
+  audio._playRequestId = (audio._playRequestId || 0) + 1;
+  audio._blockhotShouldPlay = true;
+  const requestId = audio._playRequestId;
 
   function tryPlay() {
+    if (!audio._blockhotShouldPlay || requestId !== audio._playRequestId) {
+      return;
+    }
     audio.volume = 0;
     const playFn = audio._nativePlay || audio.play.bind(audio);
     const promise = playFn();
     if (promise && typeof promise.then === "function") {
       promise.then(function() {
+        if (!audio._blockhotShouldPlay || requestId !== audio._playRequestId) {
+          audio.pause();
+          audio.currentTime = 0;
+          return;
+        }
         let vol = 0;
         const target =
           (audio.baseVolume || 0.3) * (audioManager.masterVolume || 0.6);
         const fade = setInterval(function() {
+          if (!audio._blockhotShouldPlay || requestId !== audio._playRequestId) {
+            clearInterval(fade);
+            audio.pause();
+            audio.currentTime = 0;
+            return;
+          }
           vol += 0.03;
           if (vol >= target) {
             audio.volume = target;
@@ -1563,7 +1582,12 @@ function startMusic(audio) {
           }
         }, 50);
       }).catch(function() {
-        audioManager.pendingUnlock.push(tryPlay);
+        if (
+          audio._blockhotShouldPlay &&
+          requestId === audio._playRequestId
+        ) {
+          audioManager.pendingUnlock.push(tryPlay);
+        }
       });
     }
   }

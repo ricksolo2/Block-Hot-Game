@@ -647,10 +647,7 @@ export class Game {
   }
 
   finishIntro() {
-    if (this.introMusic && !this.introMusic.paused) {
-      this.introMusic.pause();
-      this.introMusic.currentTime = 0;
-    }
+    this.stopTrack(this.introMusic);
     this.state = "playing";
     this.introIndex = 0;
     this.introTimer = 0;
@@ -2125,18 +2122,9 @@ export class Game {
   }
 
   stopMusic() {
-    if (this.introMusic && !this.introMusic.paused) {
-      this.introMusic.pause();
-      this.introMusic.currentTime = 0;
-    }
-    if (this.music && !this.music.paused) {
-      this.music.pause();
-      this.music.currentTime = 0;
-    }
-    if (this.bossMusic && !this.bossMusic.paused) {
-      this.bossMusic.pause();
-      this.bossMusic.currentTime = 0;
-    }
+    this.stopTrack(this.introMusic);
+    this.stopTrack(this.music);
+    this.stopTrack(this.bossMusic);
   }
 
   resumeMusic() {
@@ -2177,6 +2165,16 @@ export class Game {
         this.music.play().catch(() => {});
       }
     }
+  }
+
+  stopTrack(track) {
+    if (!track) return;
+    track._blockhotShouldPlay = false;
+    track._playRequestId = (track._playRequestId || 0) + 1;
+    if (!track.paused) {
+      track.pause();
+    }
+    track.currentTime = 0;
   }
 
   playSfx(sound) {
@@ -2352,7 +2350,7 @@ export class Game {
 
   drawFullscreenImage(ctx, image, alpha = 1) {
     if (!image) return;
-    const scale = Math.max(
+    const scale = Math.min(
       CONFIG.width / image.width,
       CONFIG.height / image.height
     );
@@ -2362,6 +2360,8 @@ export class Game {
     const drawY = (CONFIG.height - drawH) / 2;
     ctx.save();
     ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
     ctx.drawImage(image, drawX, drawY, drawW, drawH);
     ctx.restore();
   }

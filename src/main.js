@@ -1,4 +1,4 @@
-import { Game } from "./game.js?v=26";
+import { Game } from "./game.js?v=28";
 import {
   ENTITY_STATES,
   createClip,
@@ -122,12 +122,18 @@ const LEVEL_ASSET_SPECS = [
 ];
 
 const BACKGROUND_ASSET_SPECS = [
-  { key: "background1", path: "../assets/background.png", label: "Background 1", kind: "image" },
+  { key: "background1Primary", path: "../assets/background Level 1 (v2).png", label: "Background 1", kind: "image" },
+  { key: "background1Fallback", path: "../assets/background.png", label: "Background 1 Fallback", kind: "image" },
   { key: "background2", path: "../assets/Level 2 background .png", label: "Background 2", kind: "image" },
   { key: "background3Primary", path: "../assets/Level 3 Background .png", label: "Background 3", kind: "image" },
   { key: "background3Alt", path: "../assets/Level 3 background .png", label: "Background 3 Alt", kind: "image" },
   { key: "background3Fallback", path: "../assets/O-Block Background.png", label: "Background 3 Fallback", kind: "image" },
   { key: "background4", path: "../assets/level 4 background.png", label: "Background 4", kind: "image" },
+  { key: "intro1", path: "../assets/cutscene_intro_1 (v2).png", label: "Intro Cutscene 1", kind: "image" },
+  { key: "intro2", path: "../assets/cutscene_intro_2.png", label: "Intro Cutscene 2", kind: "image" },
+  { key: "intro3", path: "../assets/cutscene_intro_3.png", label: "Intro Cutscene 3", kind: "image" },
+  { key: "intro4", path: "../assets/cutscene_intro_4.png", label: "Intro Cutscene 4", kind: "image" },
+  { key: "intro5", path: "../assets/cutscene_intro_5.png", label: "Intro Cutscene 5", kind: "image" },
   { key: "arrestImage", path: "../assets/cutscene_arrest.png", label: "Arrest Cutscene", kind: "image" },
   { key: "menuImage", path: "../assets/Loading Screen.png", label: "Menu Screen", kind: "image" },
 ];
@@ -197,6 +203,7 @@ const POWER_UP_ASSET_SPECS = [
 ];
 
 const AUDIO_ASSET_SPECS = [
+  { key: "introMusic", path: "../audio/Lofi Drift (Chicago Drill).mp3", label: "Intro Music", kind: "music", baseVolume: 0.32 },
   { key: "music", path: "../audio/2012 Drill x Lofi Hype.mp3", label: "Stage Music", kind: "music", baseVolume: 0.3 },
   { key: "bossMusic", path: "../audio/Boss Level Drill (Take 2).mp3", label: "Boss Music", kind: "music", baseVolume: 0.38 },
   { key: "gun", path: "../audio/GUNPis-Generate_a_20-second-Elevenlabs.mp3", label: "Gun SFX", kind: "sfx", options: { volume: 1, poolSize: 10 } },
@@ -277,12 +284,20 @@ async function init() {
   const level2 = levelAssets.level2;
   const level3 = levelAssets.level3;
   const level4 = levelAssets.level4;
-  const background1 = backgroundAssets.background1;
+  const background1 =
+    backgroundAssets.background1Primary || backgroundAssets.background1Fallback;
   const background2 = backgroundAssets.background2;
   const background3Primary = backgroundAssets.background3Primary;
   const background3Alt = backgroundAssets.background3Alt;
   const background3Fallback = backgroundAssets.background3Fallback;
   const background4 = backgroundAssets.background4;
+  const introImages = [
+    backgroundAssets.intro1,
+    backgroundAssets.intro2,
+    backgroundAssets.intro3,
+    backgroundAssets.intro4,
+    backgroundAssets.intro5,
+  ].filter(Boolean);
   const arrestImage = backgroundAssets.arrestImage;
   const menuImage = backgroundAssets.menuImage;
   const levels = [
@@ -310,6 +325,7 @@ async function init() {
   const enemyScales = buildEnemyScales(enemyAnimations);
   const bossScale = bossBaseHeight ? 42 / bossBaseHeight : 1;
 
+  const introMusic = audioAssets.introMusic;
   const music = audioAssets.music;
   const bossMusic = audioAssets.bossMusic;
   const sfx = audioAssets.sfx;
@@ -319,13 +335,15 @@ async function init() {
     lastVolume: 0.6,
     step: 0.1,
   };
-  applyAudioState(music, sfx, audioState, [bossMusic]);
+  applyAudioState(music, sfx, audioState, [bossMusic, introMusic]);
 
   const game = new Game(canvas, ctx, input, levels[0].level, {
     levels,
     background: levels[0].background,
     menuImage,
+    introImages,
     arrestImage,
+    introMusic,
     playerAnimations,
     spriteScale,
     enemyAnimations,
@@ -338,6 +356,7 @@ async function init() {
     audioManager,
     startMusic,
   });
+  game.introMusic = introMusic;
   game.music = music;
   game.bossMusic = bossMusic;
   game.audioState = audioState;
@@ -351,8 +370,8 @@ async function init() {
   }
   game.start();
   window.addEventListener("resize", () => game.resize());
-  setupAudioStart(music, sfx);
-  setupAudioControls(music, sfx, audioState, [bossMusic]);
+  setupAudioStart();
+  setupAudioControls(music, sfx, audioState, [bossMusic, introMusic]);
 }
 
 function createLoadingTracker(totalAssets) {
@@ -538,6 +557,7 @@ async function loadAudioAssets(progress) {
   }
 
   return {
+    introMusic: assets.introMusic || null,
     music: assets.music || null,
     bossMusic: assets.bossMusic || null,
     sfx: {
@@ -1555,16 +1575,13 @@ function startMusic(audio) {
   }
 }
 
-function setupAudioStart(audio, sfx) {
-  if (!audio && !sfx) return;
+function setupAudioStart() {
   let started = false;
   const start = () => {
     if (started) return;
     started = true;
     audioManager.unlock()
-      .then(function() {
-        startMusic(audio);
-      })
+      .then(function() {})
       .catch(() => {
         started = false;
       });

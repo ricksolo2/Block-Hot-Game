@@ -39,6 +39,8 @@ export class Game {
     this.camera = { x: 0, y: 0, w: CONFIG.width, h: CONFIG.height };
     this.background = levelData.background || options.background || null;
     this.menuImage = options.menuImage || null;
+    this.introImages = options.introImages || [];
+    this.introMusic = options.introMusic || null;
     this.arrestImage = options.arrestImage || null;
     this.playerAnimations = options.playerAnimations || null;
     this.spriteScale = options.spriteScale || 1;
@@ -97,6 +99,8 @@ export class Game {
     this.copSpawnTimer = CONFIG.copSpawnInterval;
     this.ninjaSpawnTimer = CONFIG.ninjaSpawnInterval;
     this.state = "menu";
+    this.introIndex = 0;
+    this.introTimer = 0;
     this.arrestTimer = 0;
     this.arrestPhase = 0;
     this.autoInstructionsShown = false;
@@ -401,7 +405,7 @@ export class Game {
     }
     if (this.state === "menu") {
       if (this.input.wasPressed("Enter")) {
-        this.state = "playing";
+        this.startIntro();
       } else if (this.input.wasPressed("KeyI")) {
         this.state = "instructions";
       }
@@ -414,8 +418,15 @@ export class Game {
       if (this.input.wasPressed("Escape") || this.input.wasPressed("KeyI")) {
         this.state = "menu";
       } else if (this.input.wasPressed("Enter")) {
-        this.state = "playing";
+        this.startIntro();
       }
+      this.syncPublicState();
+      this.input.clearPressed();
+      return;
+    }
+
+    if (this.state === "intro") {
+      this.updateIntro(dt);
       this.syncPublicState();
       this.input.clearPressed();
       return;
@@ -609,6 +620,62 @@ export class Game {
 
   syncPublicState() {
     window.__blockhot_state = this.state;
+  }
+
+  startIntro() {
+    if (!this.introImages || this.introImages.length === 0) {
+      this.state = "playing";
+      this.resumeMusic();
+      return;
+    }
+    this.stopMusic();
+    this.state = "intro";
+    this.introIndex = 0;
+    this.introTimer = 0;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    if (this.introMusic) {
+      this.introMusic.currentTime = 0;
+      if (this.startMusic) {
+        this.startMusic(this.introMusic);
+      } else if (this.audioManager) {
+        this.audioManager.ensurePlaying(this.introMusic);
+      } else {
+        this.introMusic.play().catch(() => {});
+      }
+    }
+  }
+
+  finishIntro() {
+    if (this.introMusic && !this.introMusic.paused) {
+      this.introMusic.pause();
+      this.introMusic.currentTime = 0;
+    }
+    this.state = "playing";
+    this.introIndex = 0;
+    this.introTimer = 0;
+    this.resumeMusic();
+  }
+
+  updateIntro(dt) {
+    if (
+      this.input.wasPressed("Enter") ||
+      this.input.wasPressed("Escape") ||
+      this.input.wasPressed("Space") ||
+      this.input.wasPressed("KeyX")
+    ) {
+      this.finishIntro();
+      return;
+    }
+
+    this.introTimer += dt;
+    if (this.introTimer >= 2.4) {
+      this.introTimer = 0;
+      this.introIndex += 1;
+      if (this.introIndex >= this.introImages.length) {
+        this.finishIntro();
+      }
+    }
   }
 
   updateCamera() {
@@ -2001,6 +2068,8 @@ export class Game {
   restart() {
     this.levelComplete = false;
     this.state = "playing";
+    this.introIndex = 0;
+    this.introTimer = 0;
     this.arrestTimer = 0;
     this.arrestPhase = 0;
     this.pauseTimer = 0;
@@ -2051,9 +2120,15 @@ export class Game {
     }
     this.restart();
     this.state = "menu";
+    this.introIndex = 0;
+    this.introTimer = 0;
   }
 
   stopMusic() {
+    if (this.introMusic && !this.introMusic.paused) {
+      this.introMusic.pause();
+      this.introMusic.currentTime = 0;
+    }
     if (this.music && !this.music.paused) {
       this.music.pause();
       this.music.currentTime = 0;
@@ -2123,6 +2198,8 @@ export class Game {
     this.state = "gameover";
     this.levelComplete = false;
     this.bust.active = false;
+    this.introIndex = 0;
+    this.introTimer = 0;
     this.arrestTimer = 0;
     this.arrestPhase = 0;
     this.pauseTimer = 0;
@@ -2196,6 +2273,11 @@ export class Game {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, CONFIG.width, CONFIG.height);
 
+    if (this.state === "intro") {
+      this.drawIntroSequence(ctx);
+      return;
+    }
+
     const shake = this.getShakeOffset();
     ctx.save();
     ctx.translate(shake.x, shake.y);
@@ -2229,6 +2311,59 @@ export class Game {
       return;
     }
     drawHud(ctx, this);
+  }
+
+  drawIntroSequence(ctx) {
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+
+    const current = this.introImages[this.introIndex];
+    const next = this.introImages[this.introIndex + 1];
+    const fadeDuration = 0.4;
+    const holdDuration = 2.4;
+    const fadeOutStart = holdDuration - fadeDuration;
+
+    if (current) {
+      let alpha = 1;
+      if (this.introTimer < fadeDuration) {
+        alpha = clamp(this.introTimer / fadeDuration, 0, 1);
+      } else if (this.introTimer > fadeOutStart && next) {
+        alpha = clamp((holdDuration - this.introTimer) / fadeDuration, 0, 1);
+      }
+      this.drawFullscreenImage(ctx, current, alpha);
+    }
+
+    if (next && this.introTimer > fadeOutStart) {
+      const nextAlpha = clamp(
+        (this.introTimer - fadeOutStart) / fadeDuration,
+        0,
+        1
+      );
+      this.drawFullscreenImage(ctx, next, nextAlpha);
+    }
+
+    ctx.save();
+    ctx.font = "9px monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.72)";
+    ctx.fillText("Press Enter / Shoot to skip", CONFIG.width / 2, CONFIG.height - 18);
+    ctx.restore();
+  }
+
+  drawFullscreenImage(ctx, image, alpha = 1) {
+    if (!image) return;
+    const scale = Math.max(
+      CONFIG.width / image.width,
+      CONFIG.height / image.height
+    );
+    const drawW = image.width * scale;
+    const drawH = image.height * scale;
+    const drawX = (CONFIG.width - drawW) / 2;
+    const drawY = (CONFIG.height - drawH) / 2;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(image, drawX, drawY, drawW, drawH);
+    ctx.restore();
   }
 
   drawArrestSequence(ctx) {

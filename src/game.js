@@ -666,7 +666,9 @@ export class Game {
     }
 
     this.introTimer += dt;
-    if (this.introTimer >= 2.4) {
+    const isLastIntroFrame = this.introIndex >= this.introImages.length - 1;
+    const frameDuration = isLastIntroFrame ? 2.4 : 5.4;
+    if (this.introTimer >= frameDuration) {
       this.introTimer = 0;
       this.introIndex += 1;
       if (this.introIndex >= this.introImages.length) {
@@ -2128,6 +2130,7 @@ export class Game {
   }
 
   resumeMusic() {
+    this.stopTrack(this.introMusic);
     const shouldUseBossMusic = !!(
       this.level &&
       this.level.boss &&
@@ -2316,28 +2319,21 @@ export class Game {
     ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
 
     const current = this.introImages[this.introIndex];
-    const next = this.introImages[this.introIndex + 1];
     const fadeDuration = 0.4;
-    const holdDuration = 2.4;
-    const fadeOutStart = holdDuration - fadeDuration;
+    const displayDuration = 2.4;
+    const isLastIntroFrame = this.introIndex >= this.introImages.length - 1;
+    const pauseDuration = isLastIntroFrame ? 0 : 3.0;
+    const sceneTime = Math.min(this.introTimer, displayDuration);
+    const fadeOutStart = displayDuration - fadeDuration;
 
     if (current) {
       let alpha = 1;
-      if (this.introTimer < fadeDuration) {
-        alpha = clamp(this.introTimer / fadeDuration, 0, 1);
-      } else if (this.introTimer > fadeOutStart && next) {
-        alpha = clamp((holdDuration - this.introTimer) / fadeDuration, 0, 1);
+      if (sceneTime < fadeDuration) {
+        alpha = clamp(sceneTime / fadeDuration, 0, 1);
+      } else if (sceneTime > fadeOutStart && pauseDuration > 0) {
+        alpha = clamp((displayDuration - sceneTime) / fadeDuration, 0, 1);
       }
       this.drawFullscreenImage(ctx, current, alpha);
-    }
-
-    if (next && this.introTimer > fadeOutStart) {
-      const nextAlpha = clamp(
-        (this.introTimer - fadeOutStart) / fadeDuration,
-        0,
-        1
-      );
-      this.drawFullscreenImage(ctx, next, nextAlpha);
     }
 
     ctx.save();

@@ -635,6 +635,7 @@ export class Game {
     this.player.vx = 0;
     this.player.vy = 0;
     if (this.introMusic) {
+      this.introMusic.muted = !!window.__blockhot_muted;
       this.introMusic.currentTime = 0;
       if (this.startMusic) {
         this.startMusic(this.introMusic);
@@ -647,7 +648,7 @@ export class Game {
   }
 
   finishIntro() {
-    this.stopTrack(this.introMusic);
+    this.silenceIntroMusic();
     this.state = "playing";
     this.introIndex = 0;
     this.introTimer = 0;
@@ -2124,13 +2125,13 @@ export class Game {
   }
 
   stopMusic() {
-    this.stopTrack(this.introMusic);
+    this.silenceIntroMusic();
     this.stopTrack(this.music);
     this.stopTrack(this.bossMusic);
   }
 
   resumeMusic() {
-    this.stopTrack(this.introMusic);
+    this.silenceIntroMusic();
     const shouldUseBossMusic = !!(
       this.level &&
       this.level.boss &&
@@ -2178,6 +2179,12 @@ export class Game {
       track.pause();
     }
     track.currentTime = 0;
+  }
+
+  silenceIntroMusic() {
+    if (!this.introMusic) return;
+    this.stopTrack(this.introMusic);
+    this.introMusic.muted = true;
   }
 
   playSfx(sound) {

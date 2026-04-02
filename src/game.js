@@ -42,6 +42,8 @@ export class Game {
     this.introImages = options.introImages || [];
     this.introMusic = options.introMusic || null;
     this.arrestImage = options.arrestImage || null;
+    this.defeatImage = options.defeatImage || null;
+    this.victoryImage = options.victoryImage || null;
     this.playerAnimations = options.playerAnimations || null;
     this.spriteScale = options.spriteScale || 1;
     this.enemyAnimations = options.enemyAnimations || null;
@@ -96,6 +98,7 @@ export class Game {
     this.safehouseCooldown = 0;
     this.levelComplete = false;
     this.completeStats = null;
+    this.levelTime = 0;
     this.copSpawnTimer = CONFIG.copSpawnInterval;
     this.ninjaSpawnTimer = CONFIG.ninjaSpawnInterval;
     this.state = "menu";
@@ -103,6 +106,8 @@ export class Game {
     this.introTimer = 0;
     this.arrestTimer = 0;
     this.arrestPhase = 0;
+    this.cinematicTimer = 0;
+    this.cinematicPhase = 0;
     this.autoInstructionsShown = false;
     this.pauseTimer = 0;
     this.bust = {
@@ -501,6 +506,20 @@ export class Game {
       return;
     }
 
+    if (this.state === "bossdefeat") {
+      this.updateBossDefeatCinematic(dt);
+      this.syncPublicState();
+      this.input.clearPressed();
+      return;
+    }
+
+    if (this.state === "bossvictory") {
+      this.updateBossVictoryCinematic(dt);
+      this.syncPublicState();
+      this.input.clearPressed();
+      return;
+    }
+
     if (this.state === "bossfight" && this.bossDefeatActive) {
       this.updateBossDefeatSequence(dt);
       this.syncPublicState();
@@ -508,6 +527,7 @@ export class Game {
       return;
     }
 
+    this.levelTime += dt;
     this.safehouseCooldown = Math.max(0, this.safehouseCooldown - dt);
     this.bossHpFlashTimer = Math.max(0, this.bossHpFlashTimer - dt);
     this.screenFlashAlpha = Math.max(0, this.screenFlashAlpha - dt * 1.8);
@@ -1096,6 +1116,19 @@ export class Game {
     this.screenFlashAlpha = Math.max(this.screenFlashAlpha, 0.2);
   }
 
+  isBossCinematicLevel() {
+    const lastLevelIndex = this.levels ? this.levels.length - 1 : 0;
+    return !!(
+      this.level &&
+      this.level.boss &&
+      (this.state === "bossfight" ||
+        this.bossActive ||
+        this.bossVisible ||
+        this.bossDefeatActive ||
+        this.levelIndex >= lastLevelIndex)
+    );
+  }
+
   updateBossDefeatSequence(dt) {
     this.bossDefeatTimer += dt;
     this.animator.update(dt);
@@ -1170,6 +1203,15 @@ export class Game {
 
     if (t >= 6) {
       this.levelComplete = true;
+      this.stopMusic();
+      this.bossDefeatActive = false;
+      this.bossVisible = false;
+      if (this.victoryImage && this.isBossCinematicLevel()) {
+        this.state = "bossvictory";
+        this.cinematicTimer = 0;
+        this.cinematicPhase = 0;
+        return;
+      }
       this.state = "complete";
       this.completeStats = {
         coins: this.coinCount,
@@ -1178,7 +1220,52 @@ export class Game {
         score: this.score,
         level: this.levelIndex + 1,
       };
-      this.stopMusic();
+    }
+  }
+
+  updateBossDefeatCinematic(dt) {
+    this.cinematicTimer += dt;
+
+    if (this.cinematicTimer < 1.5) {
+      this.cinematicPhase = 0;
+      if (this.cinematicTimer < 0.5) {
+        this.addShake(2, 0.1);
+      }
+    } else if (this.cinematicTimer < 3) {
+      this.cinematicPhase = 1;
+    } else if (this.cinematicTimer < 7) {
+      this.cinematicPhase = 2;
+    } else {
+      this.cinematicPhase = 3;
+      if (
+        this.input.wasPressed("Enter") ||
+        this.input.wasPressed("Space") ||
+        this.input.wasPressed("KeyX")
+      ) {
+        this.restart();
+      }
+    }
+  }
+
+  updateBossVictoryCinematic(dt) {
+    this.cinematicTimer += dt;
+
+    if (this.cinematicTimer < 2) {
+      this.cinematicPhase = 0;
+      this.addShake(3, 0.1);
+    } else if (this.cinematicTimer < 4) {
+      this.cinematicPhase = 1;
+    } else if (this.cinematicTimer < 10) {
+      this.cinematicPhase = 2;
+    } else {
+      this.cinematicPhase = 3;
+      if (
+        this.input.wasPressed("Enter") ||
+        this.input.wasPressed("Space") ||
+        this.input.wasPressed("KeyX")
+      ) {
+        this.returnToMenu();
+      }
     }
   }
 
@@ -2072,8 +2159,11 @@ export class Game {
     this.introTimer = 0;
     this.arrestTimer = 0;
     this.arrestPhase = 0;
+    this.cinematicTimer = 0;
+    this.cinematicPhase = 0;
     this.pauseTimer = 0;
     this.completeStats = null;
+    this.levelTime = 0;
     this.score = 0;
     this.coinCount = 0;
     this.swatKills = 0;
@@ -2122,6 +2212,8 @@ export class Game {
     this.state = "menu";
     this.introIndex = 0;
     this.introTimer = 0;
+    this.cinematicTimer = 0;
+    this.cinematicPhase = 0;
   }
 
   stopMusic() {
@@ -2203,6 +2295,25 @@ export class Game {
     ) {
       playDeathSfx = false;
     }
+    if (this.defeatImage && this.isBossCinematicLevel()) {
+      this.state = "bossdefeat";
+      this.cinematicTimer = 0;
+      this.cinematicPhase = 0;
+      this.levelComplete = false;
+      this.bust.active = false;
+      this.pauseTimer = 0;
+      this.player.vx = 0;
+      this.player.vy = 0;
+      this.player.invuln = 0;
+      this.player.hurtTimer = 0;
+      this.player.blocking = false;
+      this.player.setState(ENTITY_STATES.DEAD);
+      this.stopMusic();
+      if (playDeathSfx) {
+        this.playSfx(this.sfx && this.sfx.death ? this.sfx.death : null);
+      }
+      return;
+    }
     this.state = "gameover";
     this.levelComplete = false;
     this.bust.active = false;
@@ -2210,6 +2321,8 @@ export class Game {
     this.introTimer = 0;
     this.arrestTimer = 0;
     this.arrestPhase = 0;
+    this.cinematicTimer = 0;
+    this.cinematicPhase = 0;
     this.pauseTimer = 0;
     this.player.vx = 0;
     this.player.vy = 0;
@@ -2283,6 +2396,16 @@ export class Game {
 
     if (this.state === "intro") {
       this.drawIntroSequence(ctx);
+      return;
+    }
+
+    if (this.state === "bossdefeat") {
+      this.drawBossDefeatCinematic(ctx);
+      return;
+    }
+
+    if (this.state === "bossvictory") {
+      this.drawBossVictoryCinematic(ctx);
       return;
     }
 
@@ -2402,6 +2525,110 @@ export class Game {
       CONFIG.width / 2,
       CONFIG.height / 2 + 24
     );
+    ctx.restore();
+  }
+
+  drawBossDefeatCinematic(ctx) {
+    const shake = this.getShakeOffset();
+    ctx.save();
+    ctx.translate(shake.x, shake.y);
+
+    if (this.cinematicPhase === 0) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+    } else if (this.cinematicPhase === 1) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+      if (this.defeatImage) {
+        const fadeIn = clamp((this.cinematicTimer - 1.5) / 1.5, 0, 1);
+        ctx.save();
+        ctx.globalAlpha = fadeIn;
+        ctx.drawImage(this.defeatImage, 0, 0, CONFIG.width, CONFIG.height);
+        ctx.restore();
+      }
+    } else if (this.cinematicPhase === 2) {
+      if (this.defeatImage) {
+        ctx.drawImage(this.defeatImage, 0, 0, CONFIG.width, CONFIG.height);
+      } else {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+      }
+    } else {
+      if (this.defeatImage) {
+        ctx.drawImage(this.defeatImage, 0, 0, CONFIG.width, CONFIG.height);
+      } else {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+      }
+      const blink = Math.sin(this.time * 3) > 0;
+      if (blink) {
+        ctx.save();
+        ctx.font = "bold 12px monospace";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("TAP TO TRY AGAIN", CONFIG.width / 2, CONFIG.height - 20);
+        ctx.restore();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  drawBossVictoryCinematic(ctx) {
+    const shake = this.getShakeOffset();
+    ctx.save();
+    ctx.translate(shake.x, shake.y);
+
+    if (this.cinematicPhase === 0) {
+      if (this.cinematicTimer < 0.3) {
+        ctx.fillStyle = "#ffffff";
+      } else {
+        ctx.fillStyle = "#000000";
+      }
+      ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+    } else if (this.cinematicPhase === 1) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+      if (this.victoryImage) {
+        const fadeIn = clamp((this.cinematicTimer - 2) / 2, 0, 1);
+        ctx.save();
+        ctx.globalAlpha = fadeIn;
+        ctx.drawImage(this.victoryImage, 0, 0, CONFIG.width, CONFIG.height);
+        ctx.restore();
+      }
+    } else {
+      if (this.victoryImage) {
+        ctx.drawImage(this.victoryImage, 0, 0, CONFIG.width, CONFIG.height);
+      } else {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
+      }
+
+      if (this.cinematicPhase === 2) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        ctx.fillRect(CONFIG.width / 2 - 100, CONFIG.height - 80, 200, 65);
+        ctx.save();
+        ctx.font = "9px monospace";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#f2d64b";
+        ctx.fillText("Score: " + this.score, CONFIG.width / 2, CONFIG.height - 65);
+        ctx.fillStyle = "#f7f1cf";
+        ctx.fillText("Coins: " + this.coinCount, CONFIG.width / 2, CONFIG.height - 52);
+        ctx.fillText("Time: " + Math.floor(this.levelTime) + "s", CONFIG.width / 2, CONFIG.height - 39);
+        ctx.restore();
+      } else {
+        const blink = Math.sin(this.time * 3) > 0;
+        if (blink) {
+          ctx.save();
+          ctx.font = "bold 12px monospace";
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#f2d64b";
+          ctx.fillText("TAP TO CONTINUE", CONFIG.width / 2, CONFIG.height - 16);
+          ctx.restore();
+        }
+      }
+    }
+
     ctx.restore();
   }
 

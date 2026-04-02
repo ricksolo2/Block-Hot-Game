@@ -1,4 +1,4 @@
-import { Game } from "./game.js?v=31";
+import { Game } from "./game.js?v=32";
 import {
   ENTITY_STATES,
   createClip,
@@ -135,6 +135,8 @@ const BACKGROUND_ASSET_SPECS = [
   { key: "intro4", path: "../assets/cutscene_intro_4.png", label: "Intro Cutscene 4", kind: "image" },
   { key: "intro5", path: "../assets/cutscene_intro_5.png", label: "Intro Cutscene 5", kind: "image" },
   { key: "arrestImage", path: "../assets/cutscene_arrest.png", label: "Arrest Cutscene", kind: "image" },
+  { key: "defeatImage", path: "../assets/MC Defeated cutscene.png", label: "Boss Defeat Cutscene", kind: "image" },
+  { key: "victoryImage", path: "../assets/MC win cutscene.png", label: "Boss Victory Cutscene", kind: "image" },
   { key: "menuImage", path: "../assets/Loading Screen.png", label: "Menu Screen", kind: "image" },
 ];
 
@@ -299,6 +301,8 @@ async function init() {
     backgroundAssets.intro5,
   ].filter(Boolean);
   const arrestImage = backgroundAssets.arrestImage;
+  const defeatImage = backgroundAssets.defeatImage;
+  const victoryImage = backgroundAssets.victoryImage;
   const menuImage = backgroundAssets.menuImage;
   const levels = [
     { level: level1, background: background1 },
@@ -343,6 +347,8 @@ async function init() {
     menuImage,
     introImages,
     arrestImage,
+    defeatImage,
+    victoryImage,
     introMusic,
     playerAnimations,
     spriteScale,
